@@ -11,3 +11,11 @@ Envoyer **le contenu** de ce dossier à la racine du dépôt GitHub, sur `main`,
 La sauvegarde commence à partir de la v0.2. Les actions effectuées dans la v0.1 n’étaient pas persistées. La destination 4 km, les caractéristiques et les rencontres restent des éléments de démonstration, **pas une transcription complète des règles du livre**. Les épreuves, la campagne, les classes et les tableaux officiels seront intégrés progressivement après vérification des règles.
 
 Aucune autorisation réseau, aucun compte, aucun serveur.
+
+
+## Version 0.3 — profil novice
+- Formulaire Prière de Tasmina (pompes, jumping jacks, équilibre).
+- Calcul automatique des trois caractéristiques novices et du niveau (moyenne entière).
+- Attribution Recrue/Stagiaire/Cadet et disciple de Tasmina.
+- Sauvegarde locale rétrocompatible avec la version 0.2.
+- Les données du profil avancé et les rencontres du prototype ne sont pas encore conformes au livre.

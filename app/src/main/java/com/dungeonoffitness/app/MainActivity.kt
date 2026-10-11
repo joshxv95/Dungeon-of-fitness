@@ -27,7 +27,15 @@ private data class Character(
     val dexterity: Int = 1,
     val mental: Int = 1,
     val po: Int = 10,
-    val location: String = "Fontaria"
+    val location: String = "Fontaria",
+    val profileType: String = "prototype",
+    val pushups30: Int = 0,
+    val jumpingJacks180: Int = 0,
+    val balanceReps: Int = 0,
+    val balanceCapable: Boolean = false,
+    val vigour: Int = 0,
+    val resistance: Int = 0,
+    val adaptation: Int = 0
 )
 
 private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String)
@@ -116,19 +124,59 @@ fun DungeonApp() {
     }
 }
 
+// Barèmes du profil novice : La Prière de Tasmina, livre p. 23.
+private fun rank(value: Int, thresholds: List<Int>): Int =
+    (thresholds.indexOfLast { value >= it } + 1).coerceAtLeast(1)
+
+private fun noviceProfile(c: Character, pushups: Int, jacks: Int, balance: Int, capable: Boolean): Character {
+    val vigour = rank(pushups, listOf(1, 3, 5, 7, 10, 15, 20, 25, 30, 35))
+    val resistance = rank(jacks, listOf(0, 50, 60, 70, 80, 90, 100, 120, 140, 180))
+    // Échec = rang 1 ; posture tenue = rang 2 ; 2,3,4,5,6,7,10,15 RSRA = rangs 3..10.
+    val adaptation = if (!capable) 1 else rank(balance, listOf(0, 0, 2, 3, 4, 5, 6, 7, 10, 15)).coerceAtLeast(2)
+    val level = (vigour + resistance + adaptation) / 3
+    val className = when (level) { in 1..3 -> "Recrue"; in 4..6 -> "Stagiaire"; else -> "Cadet" }
+    return c.copy(profileType = "novice", pushups30 = pushups, jumpingJacks180 = jacks,
+        balanceReps = balance, balanceCapable = capable, vigour = vigour,
+        resistance = resistance, adaptation = adaptation, level = level,
+        className = className, divinity = "Tasmina")
+}
+
 @Composable private fun CharacterScreen(c: Character, onUpdate: (Character) -> Unit) {
     var editing by remember { mutableStateOf(false) }
     var name by remember(c.name) { mutableStateOf(c.name) }
-    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    var pushups by remember(c.pushups30) { mutableStateOf(c.pushups30.toString()) }
+    var jacks by remember(c.jumpingJacks180) { mutableStateOf(c.jumpingJacks180.toString()) }
+    var balance by remember(c.balanceReps) { mutableStateOf(c.balanceReps.toString()) }
+    var capable by remember(c.balanceCapable) { mutableStateOf(c.balanceCapable) }
+    val valid = listOf(pushups, jacks, balance).all { it.toIntOrNull() != null && it.toInt() in 0..10000 }
+    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Fiche de personnage", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("${c.name} · ${c.className} · ${c.divinity} · Niveau ${c.level}") }
+        item { Text("${c.name} · ${c.className} · Disciple de ${c.divinity} · Niveau ${c.level}") }
         item { OutlinedButton(onClick = { editing = !editing }) { Text(if (editing) "Fermer" else "Modifier le nom") } }
         if (editing) {
             item { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nom du personnage") }, singleLine = true) }
             item { Button(onClick = { if (name.isNotBlank()) { onUpdate(c.copy(name = name.trim())); editing = false } }) { Text("Enregistrer") } }
         }
-        listOf("Force" to c.force, "Endurance" to c.endurance, "Agilité" to c.agility, "Dextérité" to c.dexterity, "Mental" to c.mental).forEach { (n,v) -> item { StatRow(n,v) } }
-        item { Text("Les valeurs sont provisoires : les épreuves de profil et le calcul officiel du niveau seront intégrés après vérification des tableaux du livre.") }
+        item { HorizontalDivider() }
+        item { Text("Profil novice · Prière de Tasmina", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Entre les résultats réels des trois épreuves. Les scores et le niveau sont calculés automatiquement selon le barème du livre.") }
+        item { OutlinedTextField(value = pushups, onValueChange = { if (it.length <= 5 && it.all(Char::isDigit)) pushups = it }, label = { Text("Pompes strictes en 30 secondes") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
+        item { OutlinedTextField(value = jacks, onValueChange = { if (it.length <= 5 && it.all(Char::isDigit)) jacks = it }, label = { Text("Jumping jacks en 3 minutes") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
+        item { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = capable, onCheckedChange = { capable = it }); Text("Équilibre : posture tenue au moins une fois") } }
+        if (capable) item { OutlinedTextField(value = balance, onValueChange = { if (it.length <= 5 && it.all(Char::isDigit)) balance = it }, label = { Text("Répétitions sans reprendre appui (RSRA)") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
+        item { Button(enabled = valid, onClick = { onUpdate(noviceProfile(c, pushups.toInt(), jacks.toInt(), balance.toInt(), capable)) }, modifier = Modifier.fillMaxWidth()) { Text("Enregistrer les résultats de Tasmina") } }
+        if (c.profileType == "novice") {
+            item { HorizontalDivider() }
+            item { Text("Caractéristiques novices", style = MaterialTheme.typography.titleMedium) }
+            item { StatRow("Vigueur", c.vigour) }
+            item { StatRow("Résistance", c.resistance) }
+            item { StatRow("Adaptation", c.adaptation) }
+            item { Text("Niveau : (${c.vigour} + ${c.resistance} + ${c.adaptation}) ÷ 3 = ${c.level} (arrondi inférieur)") }
+        } else {
+            item { Text("Aucun test de Tasmina enregistré. Les caractéristiques avancées ci-dessous proviennent du prototype 0.2 et ne sont pas encore évaluées par les Prières.") }
+            listOf("Force" to c.force, "Endurance" to c.endurance, "Agilité" to c.agility, "Dextérité" to c.dexterity, "Mental" to c.mental).forEach { (n,v) -> item { StatRow(n,v) } }
+        }
+        item { Text("Profil avancé : les quatre Prières et le Mental seront ajoutés dans une prochaine version.") }
     }
 }
 @Composable private fun StatRow(name: String, value: Int) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(name); Text(value.toString(), style = MaterialTheme.typography.titleMedium) } }
@@ -175,9 +223,13 @@ private fun saveState(context: Context, state: AppState) {
         put("level", c.level); put("force", c.force); put("endurance", c.endurance)
         put("agility", c.agility); put("dexterity", c.dexterity); put("mental", c.mental)
         put("po", c.po); put("location", c.location)
+        put("profileType", c.profileType); put("pushups30", c.pushups30)
+        put("jumpingJacks180", c.jumpingJacks180); put("balanceReps", c.balanceReps)
+        put("balanceCapable", c.balanceCapable); put("vigour", c.vigour)
+        put("resistance", c.resistance); put("adaptation", c.adaptation)
     }
     val obj = JSONObject().apply {
-        put("schema", 1); put("character", character); put("distance", state.distance)
+        put("schema", 2); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("encounters", state.encounters)
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
@@ -207,7 +259,12 @@ private fun loadState(context: Context): AppState {
             agility = cj.optInt("agility", base.agility),
             dexterity = cj.optInt("dexterity", base.dexterity),
             mental = cj.optInt("mental", base.mental), po = cj.optInt("po", base.po),
-            location = cj.optString("location", base.location)
+            location = cj.optString("location", base.location),
+            profileType = cj.optString("profileType", base.profileType),
+            pushups30 = cj.optInt("pushups30", 0), jumpingJacks180 = cj.optInt("jumpingJacks180", 0),
+            balanceReps = cj.optInt("balanceReps", 0), balanceCapable = cj.optBoolean("balanceCapable", false),
+            vigour = cj.optInt("vigour", 0), resistance = cj.optInt("resistance", 0),
+            adaptation = cj.optInt("adaptation", 0)
         )
         fun strings(key: String, fallback: List<String>): List<String> {
             val array = obj.optJSONArray(key) ?: return fallback
