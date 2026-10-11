@@ -57,3 +57,11 @@ Décompresser et transférer le contenu du dossier `dungeon-fitness-app` à la r
 - Effets immédiats affichés, à appliquer manuellement ; rencontres inoffensives séparées.
 - Sauvegarde de la rencontre en cours et des PV restants.
 - Les pouvoirs de classe, objets, fuite et effets persistants ne sont pas encore automatisés.
+
+## v1.2.0 — Armurerie et attaques
+- 11 armes tarifées et leurs exercices, transcrites du catalogue du livre p. 163-169.
+- Achat avec PO, sans revente, inventaire sauvegardé.
+- Sélection d'une arme possédée pendant le combat ; nombre de répétitions ou de tranches de temps réalisées ; calcul des PV.
+- Saisie manuelle conservée pour les objets non intégrés et les effets spéciaux.
+- Compatibilité des sauvegardes v1.1.
+- Limites : pas encore de dotation initiale recalculée, ni catalogue complet, ni automatisation des modificateurs de contexte.

@@ -61,6 +61,24 @@ private val classAchievements = linkedMapOf(
     "Acrobate" to listOf("Araignée", "Chat", "Singe")
 )
 
+// Catalogue initial transcrit du Guide touristique, pages 163 à 169.
+// Les objets modificateurs et les effets complexes seront intégrés séparément.
+private data class Weapon(val name: String, val price: Int, val damage: Int,
+    val unit: String, val exercise: String)
+private val weapons = listOf(
+    Weapon("Gants", 10, 10, "10 sec.", "Punches : coups de poing rapides et fluides"),
+    Weapon("Gants de vétéran", 20, 10, "10 sec.", "Punches : coups de poing rapides et fluides"),
+    Weapon("Haltère", 20, 20, "1 exécution", "Push Up : une pompe, corps droit, bras près du corps"),
+    Weapon("Couteaux de lancer", 50, 10, "1 exécution", "Plank Rotation : en planche, rotation sur un bras"),
+    Weapon("Épée d'échauffement", 50, 50, "30 sec.", "Coups de taille avec une bouteille en plastique vide"),
+    Weapon("Épée de bois", 50, 50, "30 sec.", "Coups de pointe avec une bouteille en plastique vide"),
+    Weapon("Arbalète", 100, 20, "1 exécution", "Rower Biceps Legs : mouvement de rameur avec les jambes en résistance"),
+    Weapon("Épée de fonte", 150, 150, "30 sec.", "Coups de pointe avec une bouteille remplie d'eau"),
+    Weapon("Arc féérique", 200, 50, "10 sec.", "Maintenir la posture Warrior II (yoga)"),
+    Weapon("Arc khôl", 200, 100, "1 exécution", "Archer Push Up : pompe avec un bras tendu sur le côté"),
+    Weapon("Épée longue", 200, 200, "30 sec.", "Coups de taille et pointe, bouteille d'eau tenue à deux mains")
+)
+
 private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String, val roll: Int = 0, val remainingHp: Int = hp * quantity, val effect: String = "", val safe: Boolean = false)
 
 private data class AppState(
@@ -72,7 +90,7 @@ private data class AppState(
     val encounters: Int = 0,
     val lastEncounter: Encounter? = null,
     val log: List<String> = listOf("Le voyage commence. Le Disque-Fonte vous attend."),
-    val inventory: List<String> = listOf("10 PO de départ"),
+    val inventory: List<String> = emptyList(),
     val quests: List<String> = listOf("Créer et suivre votre profil", "Tenir votre journal d'entraînement")
 )
 
@@ -102,6 +120,11 @@ fun DungeonApp() {
                     "adventure" -> Adventure(state,
                         onTravel = { km -> update(travel(state, km)) },
                         onResolve = { damage -> update(resolve(state, damage)) },
+                        onWeaponAttack = { name, count ->
+                            val weapon = weapons.firstOrNull { it.name == name }
+                            if (weapon != null && name in state.inventory && count > 0)
+                                update(resolve(state, (weapon.damage.toLong() * count).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()))
+                        },
                         onSkip = { update(skipEncounter(state)) },
                         onPlan = { destination, km ->
                             update(state.copy(destination = destination, destinationKm = km, distance = 0.0,
@@ -133,7 +156,12 @@ fun DungeonApp() {
                                 distance = if (firstRegistration) 0.0 else state.distance))
                         }
                     }, onReset = { resetDialog = true })
-                    "inventory" -> Inventory(state)
+                    "inventory" -> Inventory(state, onBuy = { weapon ->
+                        if (state.character.po >= weapon.price)
+                            update(state.copy(character = state.character.copy(po = state.character.po - weapon.price),
+                                inventory = state.inventory + weapon.name,
+                                log = (listOf("Achat : ${weapon.name} (${weapon.price} PO)") + state.log).take(100)))
+                    })
                     "journal" -> Journal(state)
                     "application" -> ApplicationInfo()
                     else -> Home(state) { tab = "adventure" }
@@ -189,6 +217,7 @@ private val fitlandPlaces = listOf(
     state: AppState,
     onTravel: (Double) -> Unit,
     onResolve: (Int) -> Unit,
+    onWeaponAttack: (String, Int) -> Unit,
     onSkip: () -> Unit,
     onPlan: (String, Double) -> Unit,
     onArrive: () -> Unit
@@ -197,6 +226,8 @@ private val fitlandPlaces = listOf(
     var expanded by remember { mutableStateOf(false) }
     var distanceInput by remember { mutableStateOf("") }
     var damageInput by remember { mutableStateOf("") }
+    var selectedWeapon by remember { mutableStateOf("") }
+    var attackCount by remember { mutableStateOf("1") }
     val novice = state.character.profileType == "novice"
     val unit = if (novice) "min" else "km"
     val pending = state.lastEncounter != null
@@ -244,7 +275,7 @@ private val fitlandPlaces = listOf(
             }
         }
         item { Text("Progression totale : ${"%.1f".format(state.totalTravelKm)} $unit · Rencontres déclenchées : ${state.encounters}") }
-        item { Text("Une rencontre est déclenchée tous les 6 ${unit} cumulés. Le contenu des rencontres reste provisoire et ne reproduit pas encore la table officielle.", style = MaterialTheme.typography.bodySmall) }
+        item { Text("Une rencontre est déclenchée tous les 6 ${unit} cumulés. Les adversaires et contextes proviennent de la table officielle (p. 42-43). Certains effets spéciaux restent manuels.", style = MaterialTheme.typography.bodySmall) }
         state.lastEncounter?.let { e ->
             item { HorizontalDivider() }
             item { Text("⚠ RENCONTRE — TABLE DU LIVRE", style = MaterialTheme.typography.headlineSmall) }
@@ -255,6 +286,26 @@ private val fitlandPlaces = listOf(
                 Text("Conséquence : ${e.exercise}")
                 if (e.effect.isNotBlank()) Text("Effet immédiat : ${e.effect}")
                 if (!e.safe) {
+                    val owned = weapons.filter { it.name in state.inventory }
+                    if (owned.isNotEmpty()) {
+                        Text("Attaquer avec l'équipement", style = MaterialTheme.typography.titleMedium)
+                        owned.forEach { w ->
+                            OutlinedButton(onClick = { selectedWeapon = w.name }, modifier = Modifier.fillMaxWidth()) {
+                                Text("${if (selectedWeapon == w.name) "●" else "○"} ${w.name} — ${w.damage} PV / ${w.unit}")
+                            }
+                        }
+                        val w = owned.firstOrNull { it.name == selectedWeapon }
+                        if (w != null) {
+                            Text("Exercice : ${w.exercise}")
+                            OutlinedTextField(value = attackCount, onValueChange = { attackCount = it.filter(Char::isDigit) },
+                                label = { Text("Nombre de séries / exécutions de ${w.unit}") },
+                                modifier = Modifier.fillMaxWidth(), singleLine = true)
+                            Button(enabled = (attackCount.toIntOrNull() ?: 0) in 1..1000,
+                                onClick = { onWeaponAttack(w.name, attackCount.toInt()); attackCount = "1" },
+                                modifier = Modifier.fillMaxWidth()) { Text("Exercice réalisé — infliger ${w.damage * ((attackCount.toIntOrNull() ?: 0).coerceIn(0,1000))} PV") }
+                        }
+                    } else Text("Aucune arme achetée : consulte le Sac pour t'équiper.")
+                    Text("Saisie manuelle de secours (objets spéciaux non encore intégrés) :", style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(value = damageInput, onValueChange = { damageInput = it.filter(Char::isDigit) },
                         label = { Text("Dégâts infligés avec les objets du livre (PV)") },
                         modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -477,7 +528,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun ApplicationInfo() {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Dungeon of Fitness · Version 1.1.0", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Dungeon of Fitness · Version 1.2.0", style = MaterialTheme.typography.titleLarge) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
@@ -515,7 +566,28 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
     }
 }
 
-@Composable private fun Inventory(state: AppState) { LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { item { Text("Inventaire", style = MaterialTheme.typography.headlineSmall) }; item { Text("${state.character.po} PO") }; items(state.inventory) { Text("◆ $it") } } }
+@Composable private fun Inventory(state: AppState, onBuy: (Weapon) -> Unit) {
+    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item { Text("Sac et armurerie", style = MaterialTheme.typography.headlineSmall) }
+        item { Text("Bourse : ${state.character.po} PO") }
+        item { Text("Équipement possédé", style = MaterialTheme.typography.titleMedium) }
+        if (state.inventory.isEmpty()) item { Text("Aucun objet acheté.") }
+        items(state.inventory) { Text("◆ $it") }
+        item { HorizontalDivider() }
+        item { Text("Catalogue — premières armes du livre", style = MaterialTheme.typography.titleMedium) }
+        item { Text("Achat irréversible : le livre interdit la revente. Les règles de dotation initiale (10 PO par niveau à dépenser intégralement) ne sont pas encore automatisées.", style = MaterialTheme.typography.bodySmall) }
+        items(weapons) { w ->
+            Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("${w.name} — ${w.price} PO", style = MaterialTheme.typography.titleMedium)
+                Text("${w.damage} PV / ${w.unit}")
+                Text(w.exercise)
+                Button(enabled = state.character.po >= w.price && w.name !in state.inventory,
+                    onClick = { onBuy(w) }) { Text(if (w.name in state.inventory) "Déjà possédé" else "Acheter (${w.price} PO)") }
+            } }
+        }
+    }
+}
+
 @Composable private fun Journal(state: AppState) { LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { item { Text("Journal d'aventure", style = MaterialTheme.typography.headlineSmall) }; items(state.log) { Text(it) }; item { Text("Quêtes") }; items(state.quests) { Text("□ $it") } } }
 
 private fun travel(s: AppState, km: Double): AppState {
@@ -614,7 +686,7 @@ private fun saveState(context: Context, state: AppState) {
         put("unlockedClasses", JSONArray(c.unlockedClasses)); put("completedAchievements", JSONArray(c.completedAchievements))
     }
     val obj = JSONObject().apply {
-        put("schema", 4); put("character", character); put("distance", state.distance)
+        put("schema", 5); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("totalTravelKm", state.totalTravelKm)
         put("encounters", state.encounters)
