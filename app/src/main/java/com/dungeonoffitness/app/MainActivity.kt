@@ -67,7 +67,8 @@ private data class AppState(
     val character: Character = Character(),
     val distance: Double = 0.0,
     val destination: String = "Tique-Couenne",
-    val destinationKm: Double = 4.0,
+    val destinationKm: Double = 0.0,
+    val totalTravelKm: Double = 0.0,
     val encounters: Int = 0,
     val lastEncounter: Encounter? = null,
     val log: List<String> = listOf("Le voyage commence. Le Disque-Fonte vous attend."),
@@ -98,11 +99,37 @@ fun DungeonApp() {
             Box(Modifier.padding(pad).fillMaxSize()) {
                 when(tab) {
                     "home" -> Home(state) { tab = "adventure" }
-                    "adventure" -> Adventure(state, onTravel = { km -> update(travel(state, km)) }, onResolve = { update(resolve(state)) })
+                    "adventure" -> Adventure(state,
+                        onTravel = { km -> update(travel(state, km)) },
+                        onResolve = { update(resolve(state)) },
+                        onPlan = { destination, km ->
+                            update(state.copy(destination = destination, destinationKm = km, distance = 0.0,
+                                log = (listOf("Nouveau trajet vers $destination : ${"%.1f".format(km)} km (distance relevée sur la carte).") + state.log).take(100)))
+                        },
+                        onArrive = {
+                            update(state.copy(character = state.character.copy(location = state.destination),
+                                destination = "", destinationKm = 0.0, distance = 0.0,
+                                log = (listOf("Arrivée à ${state.destination}.") + state.log).take(100)))
+                        })
                     "character" -> CharacterScreen(state.character, onUpdate = { candidate ->
                         val existing = state.character.profileType
                         if (existing == "prototype" || existing == candidate.profileType) {
-                            update(state.copy(character = candidate))
+                            val firstRegistration = existing == "prototype" && candidate.profileType != "prototype"
+                            val startingPlace = if (firstRegistration) when(candidate.className) {
+                                "Éclaireur" -> "Sud du Fitland"
+                                "Cavalier" -> "Plaine du Fitland"
+                                "Moine" -> "Tombe d’Arno"
+                                "Chasseur" -> "Dévers du Fitland"
+                                "Guerrier" -> "Temple de Tasmina"
+                                "Mage" -> "Tique-Couenne"
+                                "Barde" -> "Fontaria"
+                                "Acrobate" -> "Fei Tôro Choh"
+                                else -> "Fontaria"
+                            } else state.character.location
+                            update(state.copy(character = candidate.copy(location = startingPlace),
+                                destination = if (firstRegistration) "" else state.destination,
+                                destinationKm = if (firstRegistration) 0.0 else state.destinationKm,
+                                distance = if (firstRegistration) 0.0 else state.distance))
                         }
                     }, onReset = { resetDialog = true })
                     "inventory" -> Inventory(state)
@@ -137,7 +164,7 @@ fun DungeonApp() {
             Text(state.character.name, style = MaterialTheme.typography.titleLarge)
             Text("Niveau ${state.character.level} · ${state.character.className} · Disciple de ${state.character.divinity}")
             Spacer(Modifier.height(10.dp)); Text("📍 ${state.character.location}  →  ${state.destination}")
-            Text("Distance : ${"%.1f".format(state.distance)} / ${state.destinationKm} km")
+            Text(if (state.destinationKm > 0.0) "Distance : ${"%.1f".format(state.distance)} / ${state.destinationKm} ${if (state.character.profileType == "novice") "min" else "km"}" else "Aucun trajet en cours")
         } } }
         item { Button(onClick = start, modifier = Modifier.fillMaxWidth()) { Text("⚔ COMMENCER L'AVENTURE") } }
         item { Text("Dernier événement", style = MaterialTheme.typography.titleMedium) }
@@ -145,17 +172,79 @@ fun DungeonApp() {
     }
 }
 
-@Composable private fun Adventure(state: AppState, onTravel: (Double) -> Unit, onResolve: () -> Unit) {
+private val fitlandPlaces = listOf(
+    "Fontaria", "Temple de Tasmina", "Dévers du Fitland", "Plaine du Fitland",
+    "Sud du Fitland", "Tique-Couenne", "Tombe d’Arno", "Fei Tôro Choh",
+    "Entrepôts Shaker+", "Falaises Olympiques", "Ruines du Golem",
+    "Forêt de Brise Mollets", "Omega Beach", "Mont Stepper",
+    "Nosferathon", "Garde Froide", "Litière Ville", "Khôlkozia",
+    "Dunes des sacs crevés", "Erythropoiéta", "Oasis Interdite",
+    "Temple de la Prophétie", "Rives de la Mer de Nuages",
+    "Caverne des Nuages sans fin", "Rocher de la Croupe Draconique",
+    "Île des poids guidés", "Antre de Mollefesse"
+)
+
+@Composable private fun Adventure(
+    state: AppState,
+    onTravel: (Double) -> Unit,
+    onResolve: () -> Unit,
+    onPlan: (String, Double) -> Unit,
+    onArrive: () -> Unit
+) {
+    var selectedPlace by remember { mutableStateOf("Fontaria") }
+    var expanded by remember { mutableStateOf(false) }
+    var distanceInput by remember { mutableStateOf("") }
+    val novice = state.character.profileType == "novice"
+    val unit = if (novice) "min" else "km"
+    val pending = state.lastEncounter != null
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Expédition", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Destination : ${state.destination} · ${state.destinationKm} km") }
-        item { LinearProgressIndicator(progress = { (state.distance / state.destinationKm).coerceIn(0.0,1.0).toFloat() }, modifier = Modifier.fillMaxWidth()) }
-        item { Text("${"%.1f".format(state.distance)} / ${state.destinationKm} km") }
-        item { Button(onClick = { onTravel(1.0) }, modifier = Modifier.fillMaxWidth()) { Text("+ 1 km parcouru") } }
-        item { OutlinedButton(onClick = { onTravel(0.1) }, modifier = Modifier.fillMaxWidth()) { Text("+ 100 m") } }
+        item { Text("Position actuelle : ${state.character.location}") }
+        item { Text("Selon le livre (p. 41), les trajets sont réalisés réellement à pied, à vélo ou par un autre moyen non motorisé. Pour un novice : 1 km de carte = 1 minute d'endurance.") }
+        if (state.destinationKm <= 0.0) {
+            item { Text("Préparer un trajet", style = MaterialTheme.typography.titleMedium) }
+            item {
+                Box {
+                    OutlinedButton(onClick = { expanded = true }) { Text("Destination : $selectedPlace ▾") }
+                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        fitlandPlaces.filter { it != state.character.location }.forEach { place ->
+                            DropdownMenuItem(text = { Text(place) }, onClick = { selectedPlace = place; expanded = false })
+                        }
+                    }
+                }
+            }
+            item { OutlinedTextField(value = distanceInput, onValueChange = { distanceInput = it },
+                label = { Text("Distance sur la carte (km)") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth()) }
+            item { Text("Reporte la distance indiquée sur la carte du livre, page 51. Les itinéraires ne sont pas encore calculés automatiquement.") }
+            item { Button(enabled = (distanceInput.replace(',','.').toDoubleOrNull() ?: 0.0) > 0.0 &&
+                selectedPlace != state.character.location,
+                onClick = { onPlan(selectedPlace, distanceInput.replace(',','.').toDouble()) },
+                modifier = Modifier.fillMaxWidth()) { Text("Démarrer le trajet") } }
+        } else {
+            item { Text("Destination : ${state.destination} · ${"%.1f".format(state.destinationKm)} $unit") }
+            item { LinearProgressIndicator(progress = { (state.distance / state.destinationKm).coerceIn(0.0,1.0).toFloat() }, modifier = Modifier.fillMaxWidth()) }
+            item { Text("${"%.1f".format(state.distance)} / ${"%.1f".format(state.destinationKm)} $unit") }
+            if (novice) {
+                item { Button(enabled = !pending && state.distance < state.destinationKm,
+                    onClick = { onTravel(1.0) }, modifier = Modifier.fillMaxWidth()) { Text("+ 1 minute d'endurance") } }
+                item { OutlinedButton(enabled = !pending && state.distance < state.destinationKm,
+                    onClick = { onTravel(5.0) }, modifier = Modifier.fillMaxWidth()) { Text("+ 5 minutes d'endurance") } }
+            } else {
+                item { Button(enabled = !pending && state.distance < state.destinationKm,
+                    onClick = { onTravel(1.0) }, modifier = Modifier.fillMaxWidth()) { Text("+ 1 km parcouru") } }
+                item { OutlinedButton(enabled = !pending && state.distance < state.destinationKm,
+                    onClick = { onTravel(0.1) }, modifier = Modifier.fillMaxWidth()) { Text("+ 100 m") } }
+            }
+            if (state.distance >= state.destinationKm && !pending) {
+                item { Button(onClick = onArrive, modifier = Modifier.fillMaxWidth()) { Text("Valider l'arrivée à ${state.destination}") } }
+            }
+        }
+        item { Text("Progression totale : ${"%.1f".format(state.totalTravelKm)} $unit · Rencontres déclenchées : ${state.encounters}") }
+        item { Text("Une rencontre est déclenchée tous les 6 ${unit} cumulés. Le contenu des rencontres reste provisoire et ne reproduit pas encore la table officielle.", style = MaterialTheme.typography.bodySmall) }
         state.lastEncounter?.let { e ->
             item { HorizontalDivider() }
-            item { Text("⚠ RENCONTRE !", style = MaterialTheme.typography.headlineSmall) }
+            item { Text("⚠ RENCONTRE (PROTOTYPE)", style = MaterialTheme.typography.headlineSmall) }
             item { Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("${e.name} ×${e.quantity}", style = MaterialTheme.typography.titleLarge)
                 Text("PV : ${e.hp} chacun · Récompense : ${e.reward} PO")
@@ -373,11 +462,14 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun ApplicationInfo() {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Dungeon of Fitness · Version 0.9.0", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Dungeon of Fitness · Version 1.0.0", style = MaterialTheme.typography.titleLarge) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
-            "Déplacement manuel et jauge de 4 km (prototype)",
+            "Planification manuelle d'un trajet sur la carte du livre",
+            "Suivi des distances cumulées et validation d'arrivée",
+            "Mode novice : distance de carte convertie en minutes",
+            "Position initiale selon la classe à la création du personnage",
             "Sauvegarde locale automatique",
             "Profils novice et avancé et verrouillage du type",
             "Calcul des caractéristiques et du niveau",
@@ -398,11 +490,11 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         item { Text("En développement", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Conditions officielles de validation des accomplissements",
-            "Carte complète et campagne du livre",
+            "Carte interactive et calcul automatique des itinéraires",
             "Rencontres et combats fidèles aux tables officielles",
             "Objets, quêtes et entraînements complets"
         ).forEach { feature -> item { Text("○ $feature") } }
-        item { Text("Fonctionne hors ligne. Les rencontres et la destination actuelles restent provisoires.", style = MaterialTheme.typography.bodySmall) }
+        item { Text("Fonctionne hors ligne. Les rencontres restent provisoires ; distances à saisir depuis la carte officielle.", style = MaterialTheme.typography.bodySmall) }
     }
 }
 
@@ -412,11 +504,13 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 private fun travel(s: AppState, km: Double): AppState {
     val old = s.distance
     val newDistance = (old + km).coerceAtMost(s.destinationKm)
-    val oldChecks = kotlin.math.floor(old / 6.0).toInt()
-    val newChecks = kotlin.math.floor(newDistance / 6.0).toInt()
+    val oldChecks = kotlin.math.floor(s.totalTravelKm / 6.0).toInt()
+    val actualProgress = newDistance - old
+    val newTotal = s.totalTravelKm + actualProgress
+    val newChecks = kotlin.math.floor(newTotal / 6.0).toInt()
     val encounter = if (newChecks > oldChecks) generateEncounter() else s.lastEncounter
     val logs = if (encounter != null && newChecks > oldChecks) listOf("Rencontre : ${encounter.name} ×${encounter.quantity}") + s.log else listOf("+${"%.1f".format(km)} km parcouru") + s.log
-    return s.copy(distance = newDistance, lastEncounter = encounter, encounters = s.encounters + if (encounter != null && newChecks > oldChecks) 1 else 0, log = logs.take(100))
+    return s.copy(distance = newDistance, totalTravelKm = newTotal, lastEncounter = encounter, encounters = s.encounters + if (encounter != null && newChecks > oldChecks) 1 else 0, log = logs.take(100))
 }
 
 private fun resolve(s: AppState): AppState = s.lastEncounter?.let { e -> s.copy(character = s.character.copy(po = s.character.po + e.reward), lastEncounter = null, log = listOf("${e.name} vaincu(s). +${e.reward} PO.") + s.log) } ?: s
@@ -462,6 +556,7 @@ private fun saveState(context: Context, state: AppState) {
     val obj = JSONObject().apply {
         put("schema", 4); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
+        put("totalTravelKm", state.totalTravelKm)
         put("encounters", state.encounters)
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
         put("quests", JSONArray(state.quests))
@@ -526,6 +621,7 @@ private fun loadState(context: Context): AppState {
             distance = obj.optDouble("distance", 0.0),
             destination = obj.optString("destination", baseState.destination),
             destinationKm = obj.optDouble("destinationKm", baseState.destinationKm),
+            totalTravelKm = obj.optDouble("totalTravelKm", obj.optDouble("distance", 0.0)),
             encounters = obj.optInt("encounters", 0), lastEncounter = encounter,
             log = strings("log", baseState.log), inventory = strings("inventory", baseState.inventory),
             quests = strings("quests", baseState.quests))

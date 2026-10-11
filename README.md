@@ -40,3 +40,12 @@ Décompresser et transférer le contenu du dossier `dungeon-fitness-app` à la r
 - Possibilité de décocher une validation, y compris dans une ancienne classe.
 - Les données déjà effacées par la version 0.8 ne peuvent pas être restaurées automatiquement.
 - Numéro de version Android corrigé : 0.9.0.
+\n## v1.0.0 — Expéditions de Fitland
+- Choix d'une destination parmi les lieux de la carte (livre p. 51).
+- Saisie manuelle de la distance du trajet selon la carte, sans inventer de connexions.
+- Position de départ selon la classe lors de la première création du profil (livre p. 41).
+- Mode novice : 1 km de carte équivaut à 1 minute d'endurance (livre p. 41).
+- Progression cumulée entre trajets, rencontre à chaque seuil de 6 unités (livre p. 42).
+- Validation de l'arrivée et mise à jour de la position.
+- Sauvegardes v0.9 compatibles, accomplissements préservés.
+- LIMITES : rencontres encore fictives/provisoires ; pas de calcul automatique d'itinéraire, ni de pouvoirs de déplacement des classes.
