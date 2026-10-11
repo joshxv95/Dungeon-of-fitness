@@ -5,7 +5,7 @@ plugins {
 }
 
 android { namespace = "com.dungeonoffitness.app"; compileSdk = 35
-    defaultConfig { applicationId = "com.dungeonoffitness.app"; minSdk = 26; targetSdk = 35; versionCode = 17; versionName = "1.7.0" }
+    defaultConfig { applicationId = "com.dungeonoffitness.app"; minSdk = 26; targetSdk = 35; versionCode = 18; versionName = "1.7.1" }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

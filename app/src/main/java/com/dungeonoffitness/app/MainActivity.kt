@@ -614,7 +614,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun ApplicationInfo() {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Dungeon of Fitness · Version 1.7.0", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Dungeon of Fitness · Version 1.7.1", style = MaterialTheme.typography.titleLarge) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
@@ -884,7 +884,7 @@ private fun loadState(context: Context): AppState {
             destination = obj.optString("destination", baseState.destination),
             destinationKm = obj.optDouble("destinationKm", baseState.destinationKm),
             totalTravelKm = obj.optDouble("totalTravelKm", obj.optDouble("distance", 0.0)),
-            encounters = obj.optInt("encounters", 0), lastEncounter = encounter, meditationActive = if (newChecks > oldChecks) false else s.meditationActive,
+            encounters = obj.optInt("encounters", 0), lastEncounter = encounter,
             equippedWeapon = obj.optString("equippedWeapon", ""), meditationActive = obj.optBoolean("meditationActive", false),
             log = strings("log", baseState.log), inventory = strings("inventory", baseState.inventory),
             quests = strings("quests", baseState.quests))
