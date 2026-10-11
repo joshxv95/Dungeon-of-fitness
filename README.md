@@ -14,3 +14,4 @@ Le livre p. 35 indique littéralement « somme des scores de caractéristiques d
 
 ## Installation
 Décompresser et transférer le contenu du dossier `dungeon-fitness-app` à la racine du dépôt GitHub. Pousser sur `main`, télécharger l'APK dans Actions > Artifacts. Installer par-dessus la v0.3 pour conserver la sauvegarde.
+\n\n## Version 0.5\n- Le choix Novice/Avancé est verrouillé dès le premier enregistrement du profil et conservé après redémarrage.\n- Les épreuves du profil choisi restent actualisables.\n- La réinitialisation complète déverrouille le choix (attention : suppression totale).\n- Les noms des accomplissements des huit classes sont visibles à titre indicatif pour le profil avancé, sans validation automatique pour le moment.\n

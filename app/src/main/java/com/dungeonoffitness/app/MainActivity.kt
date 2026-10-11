@@ -86,7 +86,12 @@ fun DungeonApp() {
                 when(tab) {
                     "home" -> Home(state) { tab = "adventure" }
                     "adventure" -> Adventure(state, onTravel = { km -> update(travel(state, km)) }, onResolve = { update(resolve(state)) })
-                    "character" -> CharacterScreen(state.character, onUpdate = { update(state.copy(character = it)) }, onReset = { resetDialog = true })
+                    "character" -> CharacterScreen(state.character, onUpdate = { candidate ->
+                        val existing = state.character.profileType
+                        if (existing == "prototype" || existing == candidate.profileType) {
+                            update(state.copy(character = candidate))
+                        }
+                    }, onReset = { resetDialog = true })
                     "inventory" -> Inventory(state)
                     else -> Journal(state)
                 }
@@ -222,6 +227,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
     val activities = listOf("Course / randonnée / natation", "Cyclisme / skate", "Musculation / force", "Sports de balle", "Sports de combat", "Yoga / Pilates", "Danse", "Escalade / gymnastique")
     var activity by remember(c.primaryActivity) { mutableStateOf(c.primaryActivity.ifBlank { activities[0] }) }
     var special by remember(c.specialAbility) { mutableStateOf(c.specialAbility) }
+    val profileLocked = c.profileType == "novice" || c.profileType == "advanced"
     val noviceValid = listOf(pushups, jacks, balance).all { it.toIntOrNull() != null && it.toInt() in 0..10000 }
     fun validNumber(v: String) = v.isBlank() || (v.replace(',', '.').toDoubleOrNull()?.let { it >= 0 && it <= 100000 } == true)
     val advancedValid = listOf(strength, hours, distance, moves, precision, seconds).all(::validNumber) &&
@@ -237,9 +243,12 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         item { HorizontalDivider() }
         item { Text("Type de profil", style = MaterialTheme.typography.titleMedium) }
         item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = mode == "novice", onClick = { mode = "novice" }, label = { Text("Novice") })
-            FilterChip(selected = mode == "advanced", onClick = { mode = "advanced" }, label = { Text("Avancé") })
+            FilterChip(selected = mode == "novice", enabled = !profileLocked, onClick = { mode = "novice" }, label = { Text("Novice") })
+            FilterChip(selected = mode == "advanced", enabled = !profileLocked, onClick = { mode = "advanced" }, label = { Text("Avancé") })
         } }
+        if (profileLocked) {
+            item { Text("Profil ${if (c.profileType == "novice") "novice" else "avancé"} confirmé. Le type de profil est verrouillé. Tu peux actualiser les résultats des épreuves, mais pour changer de type, utilise « Réinitialiser toute l’aventure » (efface toutes les données).", style = MaterialTheme.typography.bodyMedium) }
+        }
         if (mode == "novice") {
             item { Text("Prière de Tasmina", style = MaterialTheme.typography.titleLarge) }
             item { Text("Entre les résultats des trois épreuves. Le niveau est calculé automatiquement.") }
@@ -247,7 +256,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             item { OutlinedTextField(value = jacks, onValueChange = { if (it.length <= 5 && it.all(Char::isDigit)) jacks = it }, label = { Text("Jumping jacks en 3 minutes") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
             item { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = capable, onCheckedChange = { capable = it }); Text("Posture d'équilibre tenue") } }
             if (capable) item { OutlinedTextField(value = balance, onValueChange = { if (it.length <= 5 && it.all(Char::isDigit)) balance = it }, label = { Text("Répétitions sans reprendre appui") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
-            item { Button(enabled = noviceValid, onClick = { onUpdate(noviceProfile(c, pushups.toInt(), jacks.toInt(), balance.toInt(), capable)) }, modifier = Modifier.fillMaxWidth()) { Text("Enregistrer le profil novice") } }
+            item { Button(enabled = noviceValid && (!profileLocked || c.profileType == "novice"), onClick = { onUpdate(noviceProfile(c, pushups.toInt(), jacks.toInt(), balance.toInt(), capable)) }, modifier = Modifier.fillMaxWidth()) { Text("Enregistrer le profil novice") } }
             if (c.profileType == "novice") {
                 item { StatRow("Vigueur", c.vigour) }; item { StatRow("Résistance", c.resistance) }; item { StatRow("Adaptation", c.adaptation) }
             }
@@ -277,7 +286,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
                 RadioButton(selected = activity == a, onClick = { activity = a }); Text(a)
             } } }
             item { OutlinedTextField(value = special, onValueChange = { special = it }, label = { Text("Capacité spéciale / exercice marquant") }, modifier = Modifier.fillMaxWidth()) }
-            item { Button(enabled = advancedValid, onClick = {
+            item { Button(enabled = advancedValid && (!profileLocked || c.profileType == "advanced"), onClick = {
                 onUpdate(advancedProfile(c, strength.replace(',','.'), hours.replace(',','.'), distance.replace(',','.'), moves.replace(',','.'), precision.replace(',','.'), seconds.replace(',','.'), difficulty, bonus, activity, special))
             }, modifier = Modifier.fillMaxWidth()) { Text("Enregistrer le profil avancé") } }
             if (c.profileType == "advanced") {
@@ -287,6 +296,28 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
                 item { StatRow("Mental", c.mental) }
                 item { Text("Niveau : (${c.force} + ${c.endurance} + ${c.agility} + ${c.dexterity} + ${c.mental}) ÷ 10 = ${c.level} (arrondi inférieur, selon le livre)") }
                 item { Text("Compétence : ${c.primaryActivity} · Capacité : ${c.specialAbility.ifBlank { "Non renseignée" }}") }
+            }
+        }
+        if (c.profileType == "advanced") {
+            item { HorizontalDivider() }
+            item { Text("Classes et accomplissements", style = MaterialTheme.typography.titleMedium) }
+            item { Text("Les accomplissements ci-dessous sont des repères du livre, pas encore des objectifs validables. Ils ne rapportent aucun point automatiquement.") }
+            val accomplishments = mapOf(
+                "Éclaireur" to listOf("Survie", "Orientation", "Exploration"),
+                "Cavalier" to listOf("Chevauchée", "Obstacle", "Course"),
+                "Moine" to listOf("Discipline", "Nutrition", "Invocation"),
+                "Chasseur" to listOf("Nuit du chasseur", "Instinct du chasseur", "Expérience du chasseur"),
+                "Guerrier" to listOf("Premier sang", "Baptême du feu", "L’art de la guerre"),
+                "Mage" to listOf("Initiation aux arcanes magiques", "Diplôme d’école de magie", "Maîtrise des vents magiques"),
+                "Barde" to listOf("Gesticuleur", "Figurant", "Vedette"),
+                "Acrobate" to listOf("Araignée", "Chat", "Singe")
+            )
+            val list = accomplishments[c.className]
+            if (list != null) {
+                item { Text("Classe actuelle : ${c.className}", style = MaterialTheme.typography.titleSmall) }
+                list.forEach { achievement -> item { Text("◇ $achievement") } }
+            } else {
+                item { Text("Choisis une activité principale et enregistre le profil pour afficher les accomplissements de ta classe.") }
             }
         }
         item { HorizontalDivider() }
