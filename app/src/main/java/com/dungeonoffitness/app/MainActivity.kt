@@ -106,7 +106,7 @@ private fun attackDamage(weapon: Weapon, count: Int, inventory: List<String>, pa
     return ((weapon.damage.toLong() * count + bonus) * (if (vigorActive) 2L else 1L)).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 }
 
-private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String, val roll: Int = 0, val remainingHp: Int = hp * quantity, val effect: String = "", val safe: Boolean = false, val contextDie: Int = 0, val contextBonus: Int = 0, val contextWeapon: String = "", val initialQuantity: Int = quantity, val illusionDie: Int = 0)
+private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String, val roll: Int = 0, val remainingHp: Int = hp * quantity, val effect: String = "", val safe: Boolean = false, val contextDie: Int = 0, val contextBonus: Int = 0, val contextWeapon: String = "", val initialQuantity: Int = quantity, val illusionDie: Int = 0, val enemyHp: List<Int> = emptyList())
 
 private data class AppState(
     val character: Character = Character(),
@@ -175,10 +175,12 @@ fun DungeonApp() {
                             if (e != null && !e.safe && name in state.inventory) {
                                 when (name) {
                                     "Shaker poison" -> {
-                                        val poisonDamage = minOf(700, e.hp, e.remainingHp)
-                                        val after = resolve(state, poisonDamage)
+                                        val current = encounterHp(e)
+                                        val target = mode.toIntOrNull()?.coerceIn(0, current.lastIndex) ?: current.indexOfFirst { it > 0 }.coerceAtLeast(0)
+                                        val poisonDamage = minOf(700, current[target])
+                                        val after = resolveTarget(state, poisonDamage, target)
                                         update(after.copy(inventory = removeOne(after.inventory, name),
-                                            log = (listOf("Shaker poison : $poisonDamage dégâts à distance sur une cible de ${e.name} (maximum 700, PV individuels plafonnés).") + after.log).take(100)))
+                                            log = (listOf("Shaker poison : $poisonDamage dégâts à distance sur ${e.name} n°${target + 1} (maximum 700, sans transfert aux autres ennemis).") + after.log).take(100)))
                                     }
                                     "Shaker vigueur" -> if (!state.vigorActive)
                                         update(state.copy(vigorActive = true, inventory = removeOne(state.inventory, name),
@@ -188,10 +190,11 @@ fun DungeonApp() {
                                         val die = Random.nextInt(1, 7)
                                         val removed = minOf(die, e.quantity - 1)
                                         val remainingEnemies = e.quantity - removed
-                                        val newHp = minOf(e.remainingHp, e.hp * remainingEnemies)
+                                        val newEnemyHp = encounterHp(e).take(remainingEnemies)
+                                        val newHp = newEnemyHp.sum()
                                         val newReward = if (e.quantity > 0) (e.reward.toLong() * remainingEnemies / e.quantity).toInt() else 0
                                         val updated = e.copy(quantity = remainingEnemies, remainingHp = newHp,
-                                            reward = newReward, initialQuantity = e.initialQuantity, illusionDie = die)
+                                            reward = newReward, initialQuantity = e.initialQuantity, illusionDie = die, enemyHp = newEnemyHp)
                                         update(state.copy(lastEncounter = updated, illusionActive = true,
                                             inventory = removeOne(state.inventory, name),
                                             log = (listOf("Shaker illusion (règle maison) : 1d6 = $die ; $removed adversaire(s) écarté(s), $remainingEnemies restant(s). Butin ajusté.") + state.log).take(100)))
@@ -377,7 +380,11 @@ private val fitlandPlaces = listOf(
             item { Text("⚠ RENCONTRE — TABLE DU LIVRE", style = MaterialTheme.typography.headlineSmall) }
             item { Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("${e.name} ×${e.quantity} (jet : ${e.roll})", style = MaterialTheme.typography.titleLarge)
-                Text("PV restants : ${e.remainingHp} / ${e.hp * e.quantity} · Butin potentiel : ${e.reward} PO")
+                Text("PV restants : ${encounterHp(e).sum()} / ${e.hp * e.quantity} · Butin potentiel : ${e.reward} PO")
+                Text("Adversaires : ${encounterHp(e).count { it > 0 }} encore debout sur ${e.quantity}")
+                encounterHp(e).forEachIndexed { index, hpLeft ->
+                    Text("${e.name} n°${index + 1} : $hpLeft / ${e.hp} PV${if (hpLeft == 0) " — vaincu" else ""}")
+                }
                 if (e.contextDie > 0) {
                     Text("Dé de contexte : ${e.contextDie} + ${e.contextBonus} = ${(e.contextDie + e.contextBonus).coerceAtMost(6)}")
                     if (e.contextWeapon.isNotBlank()) Text("Bonus d’équipement : ${e.contextWeapon} (+${weapons.firstOrNull { it.name == e.contextWeapon }?.contextBonus ?: 0})")
@@ -406,7 +413,12 @@ private val fitlandPlaces = listOf(
                     if (state.quantumMode.isNotBlank()) Text("Shaker quantique actif : ${state.quantumMode.lowercase()} le temps (facteur 2). Les durées des attaques sont recalculées automatiquement ci-dessous ; dégâts inchangés.")
                     if ("Shaker poison" in state.inventory) {
                         Text("Shaker poison : 700 dégâts à distance sur une seule cible ; consommé après usage.")
-                        Button(onClick = { onUseConsumable("Shaker poison", "") }, modifier = Modifier.fillMaxWidth()) { Text("Lancer un Shaker poison — 700 PV") }
+                        val living = encounterHp(e).indices.filter { encounterHp(e)[it] > 0 }
+                        living.forEach { index ->
+                            OutlinedButton(onClick = { onUseConsumable("Shaker poison", index.toString()) }, modifier = Modifier.fillMaxWidth()) {
+                                Text("Poison → ${e.name} n°${index + 1} (${encounterHp(e)[index]} PV)")
+                            }
+                        }
                     }
                     if ("Shaker vigueur" in state.inventory && !state.vigorActive) {
                         Button(onClick = { onUseConsumable("Shaker vigueur", "") }, modifier = Modifier.fillMaxWidth()) { Text("Boire un Shaker vigueur — dégâts ×2") }
@@ -695,7 +707,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun ApplicationInfo() {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Dungeon of Fitness · Version 1.11.0", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Dungeon of Fitness · Version 1.12.0", style = MaterialTheme.typography.titleLarge) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
@@ -876,15 +888,48 @@ private fun generateEncounter(equippedWeapon: String): Encounter? {
     val contexts = listOf("Vous êtes piégé !", "Une embuscade !", "Ils arrivent !", "Ils ne vous échapperont pas.", "Ils sont à votre merci.", "Ils n'ont rien vu.")
     val effects = listOf("10 burpees par adversaire", "Durée d'utilisation des objets ×2", "50 jumping jacks", "20 jumping jacks", "Aucun exercice", "Rencontre évitable")
     val safe = rule.effect.startsWith("Inoffensif")
-    return Encounter(rule.name, quantity, rule.hp, rule.reward * quantity, contexts[contextRoll - 1], effects[contextRoll - 1], roll, rule.hp * quantity, rule.effect, safe, contextDie, contextBonus, if (equipmentBonus > 0) equippedWeapon else "")
+    return Encounter(rule.name, quantity, rule.hp, rule.reward * quantity, contexts[contextRoll - 1], effects[contextRoll - 1], roll, rule.hp * quantity, rule.effect, safe, contextDie, contextBonus, if (equipmentBonus > 0) equippedWeapon else "", enemyHp = List(quantity) { rule.hp })
 }
 
-private fun resolve(s: AppState, damage: Int): AppState = s.lastEncounter?.let { e ->
-    val remaining = (e.remainingHp - damage.coerceAtLeast(0)).coerceAtLeast(0)
-    if (remaining > 0) s.copy(lastEncounter = e.copy(remainingHp = remaining), log = (listOf("${e.name} : $damage dégâts, $remaining PV restants") + s.log).take(100))
-    else s.copy(character = s.character.copy(po = s.character.po + e.reward), lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false,
+// Les anciennes sauvegardes n'avaient qu'une réserve commune : reconstruction déterministe.
+private fun encounterHp(e: Encounter): List<Int> {
+    if (e.enemyHp.size == e.quantity) return e.enemyHp
+    var remaining = e.remainingHp.coerceAtLeast(0)
+    return List(e.quantity) {
+        val hp = minOf(e.hp, remaining)
+        remaining -= hp
+        hp
+    }
+}
+
+private fun applyDamage(s: AppState, damage: Int, target: Int?): AppState = s.lastEncounter?.let { e ->
+    val hp = encounterHp(e).toMutableList()
+    var pending = damage.coerceAtLeast(0)
+    if (target != null) {
+        if (target !in hp.indices || hp[target] <= 0) return@let s
+        val dealt = minOf(pending, hp[target])
+        hp[target] -= dealt
+        pending = dealt
+    } else {
+        // Compatibilité avec le combat existant : dégâts répartis, sans perte entre cibles.
+        for (i in hp.indices) {
+            val dealt = minOf(pending, hp[i])
+            hp[i] -= dealt
+            pending -= dealt
+            if (pending == 0) break
+        }
+    }
+    val remaining = hp.sum()
+    val dealt = if (target == null) damage.coerceAtLeast(0) - pending else pending
+    if (remaining > 0) s.copy(lastEncounter = e.copy(remainingHp = remaining, enemyHp = hp),
+        log = (listOf("${e.name} : $dealt dégâts, $remaining PV restants (${hp.count { it > 0 }} debout)") + s.log).take(100))
+    else s.copy(character = s.character.copy(po = s.character.po + e.reward), lastEncounter = null,
+        meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false,
         log = (listOf("${e.name} vaincu(s), butin : ${e.reward} PO") + s.log).take(100))
 } ?: s
+
+private fun resolve(s: AppState, damage: Int): AppState = applyDamage(s, damage, null)
+private fun resolveTarget(s: AppState, damage: Int, index: Int): AppState = applyDamage(s, damage, index)
 
 private fun removeOne(items: List<String>, name: String): List<String> {
     val index = items.indexOf(name)
@@ -929,6 +974,7 @@ private fun saveState(context: Context, state: AppState) {
             put("roll", e.roll); put("remainingHp", e.remainingHp); put("effect", e.effect); put("safe", e.safe)
             put("contextDie", e.contextDie); put("contextBonus", e.contextBonus); put("contextWeapon", e.contextWeapon)
             put("initialQuantity", e.initialQuantity); put("illusionDie", e.illusionDie)
+            put("enemyHp", JSONArray(encounterHp(e)))
         }) }
     }
     context.getSharedPreferences("dof_save", Context.MODE_PRIVATE).edit()
@@ -984,7 +1030,8 @@ private fun loadState(context: Context): AppState {
                 it.optInt("roll", 0), it.optInt("remainingHp", it.optInt("hp") * it.optInt("quantity")),
                 it.optString("effect", ""), it.optBoolean("safe", false),
                 it.optInt("contextDie", 0), it.optInt("contextBonus", 0), it.optString("contextWeapon", ""),
-                it.optInt("initialQuantity", it.optInt("quantity")), it.optInt("illusionDie", 0))
+                it.optInt("initialQuantity", it.optInt("quantity")), it.optInt("illusionDie", 0),
+                it.optJSONArray("enemyHp")?.let { arr -> (0 until arr.length()).map { i -> arr.optInt(i) } } ?: emptyList())
         }
         val baseState = AppState()
         baseState.copy(character = if (c.profileType == "advanced" && c.className in classAchievements) c.copy(unlockedClasses = (c.unlockedClasses + c.className).distinct()) else c,

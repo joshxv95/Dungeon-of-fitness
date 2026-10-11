@@ -5,7 +5,7 @@ plugins {
 }
 
 android { namespace = "com.dungeonoffitness.app"; compileSdk = 35
-    defaultConfig { applicationId = "com.dungeonoffitness.app"; minSdk = 26; targetSdk = 35; versionCode = 111; versionName = "1.11.0" }
+    defaultConfig { applicationId = "com.dungeonoffitness.app"; minSdk = 26; targetSdk = 35; versionCode = 112; versionName = "1.12.0" }
     signingConfigs {
         getByName("debug") {
             storeFile = file("debug-signing/dof-test-debug.jks")
