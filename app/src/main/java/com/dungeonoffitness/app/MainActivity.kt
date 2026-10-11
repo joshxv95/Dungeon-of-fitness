@@ -35,7 +35,17 @@ private data class Character(
     val balanceCapable: Boolean = false,
     val vigour: Int = 0,
     val resistance: Int = 0,
-    val adaptation: Int = 0
+    val adaptation: Int = 0,
+    val strengthPercent: String = "",
+    val enduranceHours: String = "",
+    val enduranceDistance: String = "",
+    val agilityMoves: String = "",
+    val dexterityPercent: String = "",
+    val dexteritySeconds: String = "",
+    val mentalDifficulty: String = "",
+    val mentalBonus: Int = 0,
+    val primaryActivity: String = "",
+    val specialAbility: String = ""
 )
 
 private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String)
@@ -65,6 +75,7 @@ fun DungeonApp() {
     var state by remember { mutableStateOf(loadState(context)) }
     fun update(next: AppState) { state = next; saveState(context, next) }
     var tab by remember { mutableStateOf("home") }
+    var resetDialog by remember { mutableStateOf(false) }
     MaterialTheme(colorScheme = darkColorScheme()) {
         Scaffold(bottomBar = { NavigationBar {
             listOf("home" to "Accueil", "adventure" to "Aventure", "character" to "Personnage", "inventory" to "Sac", "journal" to "Journal").forEach { (id, label) ->
@@ -75,11 +86,25 @@ fun DungeonApp() {
                 when(tab) {
                     "home" -> Home(state) { tab = "adventure" }
                     "adventure" -> Adventure(state, onTravel = { km -> update(travel(state, km)) }, onResolve = { update(resolve(state)) })
-                    "character" -> CharacterScreen(state.character, onUpdate = { update(state.copy(character = it)) })
+                    "character" -> CharacterScreen(state.character, onUpdate = { update(state.copy(character = it)) }, onReset = { resetDialog = true })
                     "inventory" -> Inventory(state)
                     else -> Journal(state)
                 }
             }
+        }
+        if (resetDialog) {
+            AlertDialog(
+                onDismissRequest = { resetDialog = false },
+                title = { Text("Tout recommencer ?") },
+                text = { Text("Cette action supprime définitivement le personnage, les tests, les kilomètres, l'inventaire et le journal. Elle ne peut pas être annulée.") },
+                confirmButton = { TextButton(onClick = {
+                    context.getSharedPreferences("dof_save", Context.MODE_PRIVATE).edit().clear().commit()
+                    state = AppState()
+                    tab = "home"
+                    resetDialog = false
+                }) { Text("EFFACER TOUT") } },
+                dismissButton = { TextButton(onClick = { resetDialog = false }) { Text("Annuler") } }
+            )
         }
     }
 }
@@ -141,42 +166,133 @@ private fun noviceProfile(c: Character, pushups: Int, jacks: Int, balance: Int, 
         className = className, divinity = "Tasmina")
 }
 
-@Composable private fun CharacterScreen(c: Character, onUpdate: (Character) -> Unit) {
+// Barèmes du profil avancé : Prières de Proteidon, Endurox, Dumbella et Athleena.
+private fun advancedRank(value: Double, thresholds: List<Double>): Int =
+    if (value <= 0) 0 else (thresholds.indexOfLast { value >= it } + 1).coerceAtLeast(0)
+
+private fun advancedProfile(c: Character, strength: String, hours: String, distance: String,
+    moves: String, precision: String, seconds: String, difficulty: String, bonus: Int,
+    activity: String, special: String): Character {
+    val force = strength.toDoubleOrNull()?.let { advancedRank(it, listOf(65.0,80.0,100.0,120.0,140.0,160.0,180.0,200.0,220.0,240.0)) } ?: 0
+    val enduranceByHours = hours.toDoubleOrNull()?.let { advancedRank(it, listOf(0.5,0.75,1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0)) } ?: 0
+    val enduranceByDistance = distance.toDoubleOrNull()?.let { advancedRank(it, listOf(0.01,2.0,2.1,2.2,2.3,2.4,2.5,2.6,2.7,2.8)) } ?: 0
+    val endurance = maxOf(enduranceByHours, enduranceByDistance)
+    val agility = moves.toDoubleOrNull()?.let { advancedRank(it, listOf(2.0,3.0,6.0,10.0,12.0,15.0,18.0,21.0,25.0,30.0)) } ?: 0
+    val dexterity = maxOf(
+        precision.toDoubleOrNull()?.let { advancedRank(it, listOf(5.0,10.0,15.0,20.0,30.0,40.0,50.0,60.0,70.0,80.0)) } ?: 0,
+        seconds.toDoubleOrNull()?.let { advancedRank(it, listOf(5.0,10.0,15.0,20.0,30.0,40.0,50.0,60.0,70.0,80.0)) } ?: 0
+    )
+    // Barème de résilience mentale, p. 33 : moyenne de difficulté (1-10), 1..2→1, 3..4→2, etc.
+    val avg = difficulty.toDoubleOrNull()?.toInt() ?: 0
+    val mentalBase = when (avg) { 1,2 -> 1; 3,4 -> 2; 5,6 -> 3; 7 -> 4; 8 -> 5; 9 -> 6; 10 -> 7; else -> 0 }
+    val mental = (mentalBase + bonus).coerceIn(0,10)
+    val scores = listOf(force, endurance, agility, dexterity, mental)
+    val names = listOf("Proteidon", "Endurox", "Dumbella", "Athleena", "Arno")
+    val max = scores.maxOrNull() ?: 0
+    val divinity = if (max == 0) "Non déterminée" else names.filterIndexed { i, _ -> scores[i] == max }.joinToString(" et ")
+    // Le texte du livre p. 35 précise une somme divisée par dix (et non par cinq).
+    val level = scores.sum() / 10
+    val classes = mapOf("Course / randonnée / natation" to "Éclaireur", "Cyclisme / skate" to "Cavalier",
+        "Musculation / force" to "Moine", "Sports de balle" to "Chasseur", "Sports de combat" to "Guerrier",
+        "Yoga / Pilates" to "Mage", "Danse" to "Barde", "Escalade / gymnastique" to "Acrobate")
+    return c.copy(profileType = "advanced", force = force, endurance = endurance, agility = agility,
+        dexterity = dexterity, mental = mental, divinity = divinity, level = level,
+        className = classes[activity] ?: "Non déterminée", primaryActivity = activity,
+        specialAbility = special, strengthPercent = strength, enduranceHours = hours,
+        enduranceDistance = distance, agilityMoves = moves, dexterityPercent = precision,
+        dexteritySeconds = seconds, mentalDifficulty = difficulty, mentalBonus = bonus)
+}
+
+@Composable private fun CharacterScreen(c: Character, onUpdate: (Character) -> Unit, onReset: () -> Unit) {
     var editing by remember { mutableStateOf(false) }
     var name by remember(c.name) { mutableStateOf(c.name) }
+    var mode by remember(c.profileType) { mutableStateOf(if (c.profileType == "advanced") "advanced" else "novice") }
     var pushups by remember(c.pushups30) { mutableStateOf(c.pushups30.toString()) }
     var jacks by remember(c.jumpingJacks180) { mutableStateOf(c.jumpingJacks180.toString()) }
     var balance by remember(c.balanceReps) { mutableStateOf(c.balanceReps.toString()) }
     var capable by remember(c.balanceCapable) { mutableStateOf(c.balanceCapable) }
-    val valid = listOf(pushups, jacks, balance).all { it.toIntOrNull() != null && it.toInt() in 0..10000 }
+    var strength by remember(c.strengthPercent) { mutableStateOf(c.strengthPercent) }
+    var hours by remember(c.enduranceHours) { mutableStateOf(c.enduranceHours) }
+    var distance by remember(c.enduranceDistance) { mutableStateOf(c.enduranceDistance) }
+    var moves by remember(c.agilityMoves) { mutableStateOf(c.agilityMoves) }
+    var precision by remember(c.dexterityPercent) { mutableStateOf(c.dexterityPercent) }
+    var seconds by remember(c.dexteritySeconds) { mutableStateOf(c.dexteritySeconds) }
+    var difficulty by remember(c.mentalDifficulty) { mutableStateOf(c.mentalDifficulty) }
+    var bonus by remember(c.mentalBonus) { mutableIntStateOf(c.mentalBonus) }
+    val activities = listOf("Course / randonnée / natation", "Cyclisme / skate", "Musculation / force", "Sports de balle", "Sports de combat", "Yoga / Pilates", "Danse", "Escalade / gymnastique")
+    var activity by remember(c.primaryActivity) { mutableStateOf(c.primaryActivity.ifBlank { activities[0] }) }
+    var special by remember(c.specialAbility) { mutableStateOf(c.specialAbility) }
+    val noviceValid = listOf(pushups, jacks, balance).all { it.toIntOrNull() != null && it.toInt() in 0..10000 }
+    fun validNumber(v: String) = v.isBlank() || (v.replace(',', '.').toDoubleOrNull()?.let { it >= 0 && it <= 100000 } == true)
+    val advancedValid = listOf(strength, hours, distance, moves, precision, seconds).all(::validNumber) &&
+        (difficulty.isBlank() || difficulty.toIntOrNull() in 1..10)
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Fiche de personnage", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("${c.name} · ${c.className} · Disciple de ${c.divinity} · Niveau ${c.level}") }
+        item { Text("${c.name} · ${c.className} · ${c.divinity} · Niveau ${c.level}") }
         item { OutlinedButton(onClick = { editing = !editing }) { Text(if (editing) "Fermer" else "Modifier le nom") } }
         if (editing) {
             item { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nom du personnage") }, singleLine = true) }
             item { Button(onClick = { if (name.isNotBlank()) { onUpdate(c.copy(name = name.trim())); editing = false } }) { Text("Enregistrer") } }
         }
         item { HorizontalDivider() }
-        item { Text("Profil novice · Prière de Tasmina", style = MaterialTheme.typography.titleLarge) }
-        item { Text("Entre les résultats réels des trois épreuves. Les scores et le niveau sont calculés automatiquement selon le barème du livre.") }
-        item { OutlinedTextField(value = pushups, onValueChange = { if (it.length <= 5 && it.all(Char::isDigit)) pushups = it }, label = { Text("Pompes strictes en 30 secondes") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
-        item { OutlinedTextField(value = jacks, onValueChange = { if (it.length <= 5 && it.all(Char::isDigit)) jacks = it }, label = { Text("Jumping jacks en 3 minutes") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
-        item { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = capable, onCheckedChange = { capable = it }); Text("Équilibre : posture tenue au moins une fois") } }
-        if (capable) item { OutlinedTextField(value = balance, onValueChange = { if (it.length <= 5 && it.all(Char::isDigit)) balance = it }, label = { Text("Répétitions sans reprendre appui (RSRA)") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
-        item { Button(enabled = valid, onClick = { onUpdate(noviceProfile(c, pushups.toInt(), jacks.toInt(), balance.toInt(), capable)) }, modifier = Modifier.fillMaxWidth()) { Text("Enregistrer les résultats de Tasmina") } }
-        if (c.profileType == "novice") {
-            item { HorizontalDivider() }
-            item { Text("Caractéristiques novices", style = MaterialTheme.typography.titleMedium) }
-            item { StatRow("Vigueur", c.vigour) }
-            item { StatRow("Résistance", c.resistance) }
-            item { StatRow("Adaptation", c.adaptation) }
-            item { Text("Niveau : (${c.vigour} + ${c.resistance} + ${c.adaptation}) ÷ 3 = ${c.level} (arrondi inférieur)") }
+        item { Text("Type de profil", style = MaterialTheme.typography.titleMedium) }
+        item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = mode == "novice", onClick = { mode = "novice" }, label = { Text("Novice") })
+            FilterChip(selected = mode == "advanced", onClick = { mode = "advanced" }, label = { Text("Avancé") })
+        } }
+        if (mode == "novice") {
+            item { Text("Prière de Tasmina", style = MaterialTheme.typography.titleLarge) }
+            item { Text("Entre les résultats des trois épreuves. Le niveau est calculé automatiquement.") }
+            item { OutlinedTextField(value = pushups, onValueChange = { if (it.length <= 5 && it.all(Char::isDigit)) pushups = it }, label = { Text("Pompes en 30 secondes") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
+            item { OutlinedTextField(value = jacks, onValueChange = { if (it.length <= 5 && it.all(Char::isDigit)) jacks = it }, label = { Text("Jumping jacks en 3 minutes") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
+            item { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = capable, onCheckedChange = { capable = it }); Text("Posture d'équilibre tenue") } }
+            if (capable) item { OutlinedTextField(value = balance, onValueChange = { if (it.length <= 5 && it.all(Char::isDigit)) balance = it }, label = { Text("Répétitions sans reprendre appui") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
+            item { Button(enabled = noviceValid, onClick = { onUpdate(noviceProfile(c, pushups.toInt(), jacks.toInt(), balance.toInt(), capable)) }, modifier = Modifier.fillMaxWidth()) { Text("Enregistrer le profil novice") } }
+            if (c.profileType == "novice") {
+                item { StatRow("Vigueur", c.vigour) }; item { StatRow("Résistance", c.resistance) }; item { StatRow("Adaptation", c.adaptation) }
+            }
         } else {
-            item { Text("Aucun test de Tasmina enregistré. Les caractéristiques avancées ci-dessous proviennent du prototype 0.2 et ne sont pas encore évaluées par les Prières.") }
-            listOf("Force" to c.force, "Endurance" to c.endurance, "Agilité" to c.agility, "Dextérité" to c.dexterity, "Mental" to c.mental).forEach { (n,v) -> item { StatRow(n,v) } }
+            item { Text("Profil avancé · Les quatre Prières", style = MaterialTheme.typography.titleLarge) }
+            item { Text("Les tests sont facultatifs : toute caractéristique non évaluée vaut 0. Les valeurs saisies sont conservées.") }
+            item { Text("Proteidon · Force", style = MaterialTheme.typography.titleMedium) }
+            item { OutlinedTextField(value = strength, onValueChange = { strength = it }, label = { Text("Charge déplacée (% du poids de corps)") }, supportingText = { Text("Ex. 140 pour 140 %. Pompe = 65 %, traction = 90 % du poids de corps.") }, modifier = Modifier.fillMaxWidth()) }
+            item { Text("Endurox · Endurance", style = MaterialTheme.typography.titleMedium) }
+            item { OutlinedTextField(value = hours, onValueChange = { hours = it }, label = { Text("Durée d'effort en heures (ex. 1.5)") }, modifier = Modifier.fillMaxWidth()) }
+            item { OutlinedTextField(value = distance, onValueChange = { distance = it }, label = { Text("OU kilomètres à pied en 12 minutes") }, modifier = Modifier.fillMaxWidth()) }
+            item { Text("Dumbella · Agilité", style = MaterialTheme.typography.titleMedium) }
+            item { OutlinedTextField(value = moves, onValueChange = { moves = it }, label = { Text("Nombre de mouvements maîtrisés") }, modifier = Modifier.fillMaxWidth()) }
+            item { Text("Athleena · Dextérité", style = MaterialTheme.typography.titleMedium) }
+            item { OutlinedTextField(value = precision, onValueChange = { precision = it }, label = { Text("Réussite des lancers (%) · au moins 20") }, modifier = Modifier.fillMaxWidth()) }
+            item { OutlinedTextField(value = seconds, onValueChange = { seconds = it }, label = { Text("OU équilibre yeux fermés (secondes)") }, modifier = Modifier.fillMaxWidth()) }
+            item { Text("Arno · Mental", style = MaterialTheme.typography.titleMedium) }
+            item { OutlinedTextField(value = difficulty, onValueChange = { difficulty = it }, label = { Text("Moyenne des difficultés des 4 Prières (1 à 10)") }, supportingText = { Text("Arrondir la moyenne à l'entier inférieur. 1–2 = Mental 1, 3–4 = 2, etc.") }, modifier = Modifier.fillMaxWidth()) }
+            item { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { bonus = (bonus - 1).coerceAtLeast(0) }) { Text("−") }
+                Text("Progressions mentales : +$bonus")
+                OutlinedButton(onClick = { bonus = (bonus + 1).coerceAtMost(10) }) { Text("+") }
+            } }
+            item { Text("Classe et compétence", style = MaterialTheme.typography.titleMedium) }
+            item { Text("Choisis la discipline ayant donné ton meilleur score. En cas d'égalité, choisis l'une des disciplines à égalité.") }
+            activities.forEach { a -> item { Row(verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(selected = activity == a, onClick = { activity = a }); Text(a)
+            } } }
+            item { OutlinedTextField(value = special, onValueChange = { special = it }, label = { Text("Capacité spéciale / exercice marquant") }, modifier = Modifier.fillMaxWidth()) }
+            item { Button(enabled = advancedValid, onClick = {
+                onUpdate(advancedProfile(c, strength.replace(',','.'), hours.replace(',','.'), distance.replace(',','.'), moves.replace(',','.'), precision.replace(',','.'), seconds.replace(',','.'), difficulty, bonus, activity, special))
+            }, modifier = Modifier.fillMaxWidth()) { Text("Enregistrer le profil avancé") } }
+            if (c.profileType == "advanced") {
+                item { HorizontalDivider() }
+                item { StatRow("Force", c.force) }; item { StatRow("Endurance", c.endurance) }
+                item { StatRow("Agilité", c.agility) }; item { StatRow("Dextérité", c.dexterity) }
+                item { StatRow("Mental", c.mental) }
+                item { Text("Niveau : (${c.force} + ${c.endurance} + ${c.agility} + ${c.dexterity} + ${c.mental}) ÷ 10 = ${c.level} (arrondi inférieur, selon le livre)") }
+                item { Text("Compétence : ${c.primaryActivity} · Capacité : ${c.specialAbility.ifBlank { "Non renseignée" }}") }
+            }
         }
-        item { Text("Profil avancé : les quatre Prières et le Mental seront ajoutés dans une prochaine version.") }
+        item { HorizontalDivider() }
+        item { Text("Gestion de la sauvegarde", style = MaterialTheme.typography.titleMedium) }
+        item { OutlinedButton(onClick = onReset, modifier = Modifier.fillMaxWidth()) { Text("Réinitialiser toute l'aventure") } }
+        item { Text("Une confirmation sera demandée avant d'effacer les données.", style = MaterialTheme.typography.bodySmall) }
     }
 }
 @Composable private fun StatRow(name: String, value: Int) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(name); Text(value.toString(), style = MaterialTheme.typography.titleMedium) } }
@@ -227,9 +343,14 @@ private fun saveState(context: Context, state: AppState) {
         put("jumpingJacks180", c.jumpingJacks180); put("balanceReps", c.balanceReps)
         put("balanceCapable", c.balanceCapable); put("vigour", c.vigour)
         put("resistance", c.resistance); put("adaptation", c.adaptation)
+        put("strengthPercent", c.strengthPercent); put("enduranceHours", c.enduranceHours)
+        put("enduranceDistance", c.enduranceDistance); put("agilityMoves", c.agilityMoves)
+        put("dexterityPercent", c.dexterityPercent); put("dexteritySeconds", c.dexteritySeconds)
+        put("mentalDifficulty", c.mentalDifficulty); put("mentalBonus", c.mentalBonus)
+        put("primaryActivity", c.primaryActivity); put("specialAbility", c.specialAbility)
     }
     val obj = JSONObject().apply {
-        put("schema", 2); put("character", character); put("distance", state.distance)
+        put("schema", 3); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("encounters", state.encounters)
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
@@ -264,7 +385,17 @@ private fun loadState(context: Context): AppState {
             pushups30 = cj.optInt("pushups30", 0), jumpingJacks180 = cj.optInt("jumpingJacks180", 0),
             balanceReps = cj.optInt("balanceReps", 0), balanceCapable = cj.optBoolean("balanceCapable", false),
             vigour = cj.optInt("vigour", 0), resistance = cj.optInt("resistance", 0),
-            adaptation = cj.optInt("adaptation", 0)
+            adaptation = cj.optInt("adaptation", 0),
+            strengthPercent = cj.optString("strengthPercent", ""),
+            enduranceHours = cj.optString("enduranceHours", ""),
+            enduranceDistance = cj.optString("enduranceDistance", ""),
+            agilityMoves = cj.optString("agilityMoves", ""),
+            dexterityPercent = cj.optString("dexterityPercent", ""),
+            dexteritySeconds = cj.optString("dexteritySeconds", ""),
+            mentalDifficulty = cj.optString("mentalDifficulty", ""),
+            mentalBonus = cj.optInt("mentalBonus", 0),
+            primaryActivity = cj.optString("primaryActivity", ""),
+            specialAbility = cj.optString("specialAbility", "")
         )
         fun strings(key: String, fallback: List<String>): List<String> {
             val array = obj.optJSONArray(key) ?: return fallback
