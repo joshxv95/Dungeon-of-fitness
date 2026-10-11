@@ -106,7 +106,7 @@ private fun attackDamage(weapon: Weapon, count: Int, inventory: List<String>, pa
     return ((weapon.damage.toLong() * count + bonus) * (if (vigorActive) 2L else 1L)).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 }
 
-private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String, val roll: Int = 0, val remainingHp: Int = hp * quantity, val effect: String = "", val safe: Boolean = false, val contextDie: Int = 0, val contextBonus: Int = 0, val contextWeapon: String = "")
+private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String, val roll: Int = 0, val remainingHp: Int = hp * quantity, val effect: String = "", val safe: Boolean = false, val contextDie: Int = 0, val contextBonus: Int = 0, val contextWeapon: String = "", val initialQuantity: Int = quantity, val illusionDie: Int = 0)
 
 private data class AppState(
     val character: Character = Character(),
@@ -183,9 +183,19 @@ fun DungeonApp() {
                                     "Shaker vigueur" -> if (!state.vigorActive)
                                         update(state.copy(vigorActive = true, inventory = removeOne(state.inventory, name),
                                             log = (listOf("Shaker vigueur : dégâts ×2 jusqu’à la fin du combat.") + state.log).take(100)))
-                                    "Shaker illusion" -> if (!state.illusionActive)
-                                        update(state.copy(illusionActive = true, inventory = removeOne(state.inventory, name),
-                                            log = (listOf("Shaker illusion : adversaires sous illusion, vous avez des alliés. Effets numériques non précisés par le livre.") + state.log).take(100)))
+                                    "Shaker illusion" -> if (!state.illusionActive) {
+                                        // Règle maison demandée : 1d6 adversaires quittent le combat, minimum 1 restant.
+                                        val die = Random.nextInt(1, 7)
+                                        val removed = minOf(die, e.quantity - 1)
+                                        val remainingEnemies = e.quantity - removed
+                                        val newHp = minOf(e.remainingHp, e.hp * remainingEnemies)
+                                        val newReward = if (e.quantity > 0) (e.reward.toLong() * remainingEnemies / e.quantity).toInt() else 0
+                                        val updated = e.copy(quantity = remainingEnemies, remainingHp = newHp,
+                                            reward = newReward, initialQuantity = e.initialQuantity, illusionDie = die)
+                                        update(state.copy(lastEncounter = updated, illusionActive = true,
+                                            inventory = removeOne(state.inventory, name),
+                                            log = (listOf("Shaker illusion (règle maison) : 1d6 = $die ; $removed adversaire(s) écarté(s), $remainingEnemies restant(s). Butin ajusté.") + state.log).take(100)))
+                                    }
                                     "Shaker quantique" -> if (state.quantumMode.isBlank() && mode in listOf("Accélérer", "Ralentir"))
                                         update(state.copy(quantumMode = mode, inventory = removeOne(state.inventory, name),
                                             log = (listOf("Shaker quantique : ${mode.lowercase()} le temps, facteur 2, pendant ce combat (durées recalculées dans les attaques).") + state.log).take(100)))
@@ -388,9 +398,9 @@ private val fitlandPlaces = listOf(
                         Text("Shaker persuasion : consommable officiel, permet d’ignorer le combat quel que soit le nombre d’adversaires.")
                         Button(onClick = onUsePersuasion, modifier = Modifier.fillMaxWidth()) { Text("Consommer un Shaker persuasion — ignorer le combat") }
                     }
-                    if (state.illusionActive) Text("Shaker illusion actif : les adversaires croient que vous avez des alliés. Le livre ne précise pas de bonus numérique ; appliquer les conséquences avec le MJ.")
+                    if (state.illusionActive) Text("Shaker illusion (règle maison) : dé ${e.illusionDie}, ${e.initialQuantity - e.quantity} adversaire(s) écarté(s), ${e.quantity} restant(s). Butin recalculé.")
                     if ("Shaker illusion" in state.inventory && !state.illusionActive) {
-                        Button(onClick = { onUseConsumable("Shaker illusion", "") }, modifier = Modifier.fillMaxWidth()) { Text("Utiliser un Shaker illusion — créer des alliés illusoires") }
+                        Button(onClick = { onUseConsumable("Shaker illusion", "") }, modifier = Modifier.fillMaxWidth()) { Text("Shaker illusion : écarter 1d6 ennemis (minimum 1 restant)") }
                     }
                     if (state.vigorActive) Text("Shaker vigueur actif : dégâts des attaques ×2 pour ce combat.")
                     if (state.quantumMode.isNotBlank()) Text("Shaker quantique actif : ${state.quantumMode.lowercase()} le temps (facteur 2). Les durées des attaques sont recalculées automatiquement ci-dessous ; dégâts inchangés.")
@@ -685,7 +695,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun ApplicationInfo() {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Dungeon of Fitness · Version 1.7.1", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Dungeon of Fitness · Version 1.11.0", style = MaterialTheme.typography.titleLarge) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
@@ -769,7 +779,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             "Shaker poison" to "700 PV à distance sur une cible",
             "Shaker vigueur" to "Dégâts ×2 pendant un combat",
             "Shaker quantique" to "Accélère ou ralentit les durées d’exercice (facteur 2) pendant un combat",
-            "Shaker illusion" to "Vos adversaires vous voient accompagné d’alliés (effet narratif officiel)"
+            "Shaker illusion" to "Règle maison : 1d6 ennemis écartés, minimum 1 restant ; butin réduit"
         )
         items(consumables) { (name, effect) ->
             Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -905,7 +915,7 @@ private fun saveState(context: Context, state: AppState) {
         put("unlockedClasses", JSONArray(c.unlockedClasses)); put("completedAchievements", JSONArray(c.completedAchievements))
     }
     val obj = JSONObject().apply {
-        put("schema", 9); put("character", character); put("distance", state.distance)
+        put("schema", 10); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("totalTravelKm", state.totalTravelKm)
         put("encounters", state.encounters)
@@ -918,6 +928,7 @@ private fun saveState(context: Context, state: AppState) {
             put("reward", e.reward); put("context", e.context); put("exercise", e.exercise)
             put("roll", e.roll); put("remainingHp", e.remainingHp); put("effect", e.effect); put("safe", e.safe)
             put("contextDie", e.contextDie); put("contextBonus", e.contextBonus); put("contextWeapon", e.contextWeapon)
+            put("initialQuantity", e.initialQuantity); put("illusionDie", e.illusionDie)
         }) }
     }
     context.getSharedPreferences("dof_save", Context.MODE_PRIVATE).edit()
@@ -972,7 +983,8 @@ private fun loadState(context: Context): AppState {
                 it.optInt("reward"), it.optString("context"), it.optString("exercise"),
                 it.optInt("roll", 0), it.optInt("remainingHp", it.optInt("hp") * it.optInt("quantity")),
                 it.optString("effect", ""), it.optBoolean("safe", false),
-                it.optInt("contextDie", 0), it.optInt("contextBonus", 0), it.optString("contextWeapon", ""))
+                it.optInt("contextDie", 0), it.optInt("contextBonus", 0), it.optString("contextWeapon", ""),
+                it.optInt("initialQuantity", it.optInt("quantity")), it.optInt("illusionDie", 0))
         }
         val baseState = AppState()
         baseState.copy(character = if (c.profileType == "advanced" && c.className in classAchievements) c.copy(unlockedClasses = (c.unlockedClasses + c.className).distinct()) else c,

@@ -1,0 +1,1 @@
+v1.11.0 : correction version visible ; Shaker illusion : règle maison 1d6 ennemis écartés, minimum 1, réduction proportionnelle du butin, sauvegarde du dé et du nombre initial. Signature de test inchangée.
