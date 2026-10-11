@@ -1,20 +1,13 @@
-# Dungeon of Fitness — Android
+# Dungeon of Fitness — version 0.2.0
 
-Application personnelle hors ligne destinée à transformer les règles de Dungeon of Fitness en interface mobile jouable.
+Application Android hors ligne (prototype). Cette version ajoute une sauvegarde locale automatique du personnage, de la distance, des rencontres, du journal et de l’inventaire. Le nom du personnage peut être modifié dans l’onglet Personnage.
 
-## Build GitHub
+## Installer la mise à jour
 
-Le workflow `.github/workflows/build-apk.yml` compile automatiquement l'APK debug à chaque push sur `main` et sur demande via **Actions → Build APK → Run workflow**.
+Envoyer **le contenu** de ce dossier à la racine du dépôt GitHub, sur `main`, en remplaçant les fichiers existants. Le workflow Actions `Build APK` crée `app-debug.apk` dans les artefacts du run. Installer l’APK par-dessus l’ancienne version (même `applicationId`) sans désinstaller l’application pour conserver les données déjà enregistrées.
 
-L'APK est disponible dans les **Artifacts** du run.
+## Limites
 
-## État 0.1
+La sauvegarde commence à partir de la v0.2. Les actions effectuées dans la v0.1 n’étaient pas persistées. La destination 4 km, les caractéristiques et les rencontres restent des éléments de démonstration, **pas une transcription complète des règles du livre**. Les épreuves, la campagne, les classes et les tableaux officiels seront intégrés progressivement après vérification des règles.
 
-- Interface Android Jetpack Compose
-- Navigation Accueil / Aventure / Personnage / Sac / Journal
-- Déplacement et suivi de distance
-- Première implémentation du système de rencontres tous les 6 km
-- Inventaire et PO locaux en mémoire
-- Structure prête pour intégrer les tables et la campagne complète
-
-Cette version est volontairement un moteur de départ : les tables complètes du livre, les profils, tests, objets, cartes et chapitres seront ajoutés comme données structurées afin de conserver une séparation claire entre règles et interface.
+Aucune autorisation réseau, aucun compte, aucun serveur.
