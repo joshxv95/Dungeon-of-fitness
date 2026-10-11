@@ -65,3 +65,12 @@ Décompresser et transférer le contenu du dossier `dungeon-fitness-app` à la r
 - Saisie manuelle conservée pour les objets non intégrés et les effets spéciaux.
 - Compatibilité des sauvegardes v1.1.
 - Limites : pas encore de dotation initiale recalculée, ni catalogue complet, ni automatisation des modificateurs de contexte.
+
+## v1.3.0 — Modificateur de contexte
+- Gants de vétéran : +1 au dé de contexte (p. 168).
+- Choix explicite de l'arme active dans le Sac AVANT la rencontre.
+- Affichage du dé de contexte et des bonus, y compris Trollympien +2.
+- Le dépassement de 6 est plafonné à 6 faute de ligne supérieure dans la table.
+- Embuscade : rappel des durées doublées et durée effective affichée pour les armes temporisées.
+- Sauvegarde compatible avec v1.2 ; les rencontres antérieures n'ont pas de dé initial récupérable.
+- Les autres effets d'objets et capacités de classe restent manuels.

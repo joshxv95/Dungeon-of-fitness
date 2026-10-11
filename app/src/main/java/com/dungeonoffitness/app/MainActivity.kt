@@ -64,10 +64,10 @@ private val classAchievements = linkedMapOf(
 // Catalogue initial transcrit du Guide touristique, pages 163 à 169.
 // Les objets modificateurs et les effets complexes seront intégrés séparément.
 private data class Weapon(val name: String, val price: Int, val damage: Int,
-    val unit: String, val exercise: String)
+    val unit: String, val exercise: String, val contextBonus: Int = 0)
 private val weapons = listOf(
     Weapon("Gants", 10, 10, "10 sec.", "Punches : coups de poing rapides et fluides"),
-    Weapon("Gants de vétéran", 20, 10, "10 sec.", "Punches : coups de poing rapides et fluides"),
+    Weapon("Gants de vétéran", 20, 10, "10 sec.", "Punches : coups de poing rapides et fluides", contextBonus = 1),
     Weapon("Haltère", 20, 20, "1 exécution", "Push Up : une pompe, corps droit, bras près du corps"),
     Weapon("Couteaux de lancer", 50, 10, "1 exécution", "Plank Rotation : en planche, rotation sur un bras"),
     Weapon("Épée d'échauffement", 50, 50, "30 sec.", "Coups de taille avec une bouteille en plastique vide"),
@@ -79,7 +79,7 @@ private val weapons = listOf(
     Weapon("Épée longue", 200, 200, "30 sec.", "Coups de taille et pointe, bouteille d'eau tenue à deux mains")
 )
 
-private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String, val roll: Int = 0, val remainingHp: Int = hp * quantity, val effect: String = "", val safe: Boolean = false)
+private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String, val roll: Int = 0, val remainingHp: Int = hp * quantity, val effect: String = "", val safe: Boolean = false, val contextDie: Int = 0, val contextBonus: Int = 0, val contextWeapon: String = "")
 
 private data class AppState(
     val character: Character = Character(),
@@ -91,6 +91,7 @@ private data class AppState(
     val lastEncounter: Encounter? = null,
     val log: List<String> = listOf("Le voyage commence. Le Disque-Fonte vous attend."),
     val inventory: List<String> = emptyList(),
+    val equippedWeapon: String = "",
     val quests: List<String> = listOf("Créer et suivre votre profil", "Tenir votre journal d'entraînement")
 )
 
@@ -156,7 +157,9 @@ fun DungeonApp() {
                                 distance = if (firstRegistration) 0.0 else state.distance))
                         }
                     }, onReset = { resetDialog = true })
-                    "inventory" -> Inventory(state, onBuy = { weapon ->
+                    "inventory" -> Inventory(state, onEquip = { name ->
+                        if (name.isEmpty() || name in state.inventory) update(state.copy(equippedWeapon = name))
+                    }, onBuy = { weapon ->
                         if (state.character.po >= weapon.price)
                             update(state.copy(character = state.character.copy(po = state.character.po - weapon.price),
                                 inventory = state.inventory + weapon.name,
@@ -282,8 +285,14 @@ private val fitlandPlaces = listOf(
             item { Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("${e.name} ×${e.quantity} (jet : ${e.roll})", style = MaterialTheme.typography.titleLarge)
                 Text("PV restants : ${e.remainingHp} / ${e.hp * e.quantity} · Butin potentiel : ${e.reward} PO")
+                if (e.contextDie > 0) {
+                    Text("Dé de contexte : ${e.contextDie} + ${e.contextBonus} = ${(e.contextDie + e.contextBonus).coerceAtMost(6)}")
+                    if (e.contextWeapon.isNotBlank()) Text("Bonus d’équipement : ${e.contextWeapon} (+1)")
+                    if (e.effect.contains("Contexte +2")) Text("Effet Trollympien : +2 au contexte")
+                } else Text("Rencontre enregistrée avant v1.3 : jet de contexte initial indisponible.")
                 Text("Contexte : ${e.context}")
                 Text("Conséquence : ${e.exercise}")
+                if (e.context == "Une embuscade !") Text("Attention : la durée d’utilisation des objets est doublée. Pour les armes à durée, chaque tranche doit durer deux fois plus longtemps ; les dégâts par tranche restent identiques.")
                 if (e.effect.isNotBlank()) Text("Effet immédiat : ${e.effect}")
                 if (!e.safe) {
                     val owned = weapons.filter { it.name in state.inventory }
@@ -297,6 +306,7 @@ private val fitlandPlaces = listOf(
                         val w = owned.firstOrNull { it.name == selectedWeapon }
                         if (w != null) {
                             Text("Exercice : ${w.exercise}")
+                            if (e.context == "Une embuscade !" && w.unit.contains("sec.")) Text("Durée effective : ${(w.unit.substringBefore(' ').toIntOrNull() ?: 0) * 2} sec. par tranche (embuscade)")
                             OutlinedTextField(value = attackCount, onValueChange = { attackCount = it.filter(Char::isDigit) },
                                 label = { Text("Nombre de séries / exécutions de ${w.unit}") },
                                 modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -528,13 +538,15 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun ApplicationInfo() {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Dungeon of Fitness · Version 1.2.0", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Dungeon of Fitness · Version 1.3.0", style = MaterialTheme.typography.titleLarge) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
             "Planification manuelle d'un trajet sur la carte du livre",
             "Suivi des distances cumulées et validation d'arrivée",
             "Rencontres : table officielle Fitland (7D6), quantité, contexte et PV",
+            "Arme active et bonus de contexte des gants de vétéran",
+            "Historique du dé de contexte et de ses modificateurs",
             "Suivi manuel des dégâts et butin à la victoire",
             "Mode novice : distance de carte convertie en minutes",
             "Position initiale selon la classe à la création du personnage",
@@ -566,10 +578,19 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
     }
 }
 
-@Composable private fun Inventory(state: AppState, onBuy: (Weapon) -> Unit) {
+@Composable private fun Inventory(state: AppState, onEquip: (String) -> Unit, onBuy: (Weapon) -> Unit) {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Text("Sac et armurerie", style = MaterialTheme.typography.headlineSmall) }
         item { Text("Bourse : ${state.character.po} PO") }
+        item { Text("Arme active pour les prochains jets de rencontre", style = MaterialTheme.typography.titleMedium) }
+        item { Text(if (state.equippedWeapon.isBlank()) "Aucune arme active" else "Active : ${state.equippedWeapon}") }
+        item { OutlinedButton(onClick = { onEquip("") }) { Text("Aucune arme active") } }
+        items(weapons.filter { it.name in state.inventory }) { w ->
+            OutlinedButton(onClick = { onEquip(w.name) }, modifier = Modifier.fillMaxWidth()) {
+                Text("${if (state.equippedWeapon == w.name) "●" else "○"} ${w.name}${if (w.contextBonus != 0) " · Contexte +${w.contextBonus}" else ""}")
+            }
+        }
+        item { Text("L'arme doit être sélectionnée AVANT le tirage : changer d'arme ne modifie pas rétroactivement une rencontre en cours.", style = MaterialTheme.typography.bodySmall) }
         item { Text("Équipement possédé", style = MaterialTheme.typography.titleMedium) }
         if (state.inventory.isEmpty()) item { Text("Aucun objet acheté.") }
         items(state.inventory) { Text("◆ $it") }
@@ -581,6 +602,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
                 Text("${w.name} — ${w.price} PO", style = MaterialTheme.typography.titleMedium)
                 Text("${w.damage} PV / ${w.unit}")
                 Text(w.exercise)
+                if (w.contextBonus > 0) Text("Effet officiel : +${w.contextBonus} au jet de contexte (si arme active lors du tirage)")
                 Button(enabled = state.character.po >= w.price && w.name !in state.inventory,
                     onClick = { onBuy(w) }) { Text(if (w.name in state.inventory) "Déjà possédé" else "Acheter (${w.price} PO)") }
             } }
@@ -597,7 +619,7 @@ private fun travel(s: AppState, km: Double): AppState {
     val actualProgress = newDistance - old
     val newTotal = s.totalTravelKm + actualProgress
     val newChecks = kotlin.math.floor(newTotal / 6.0).toInt()
-    val encounter = if (newChecks > oldChecks) generateEncounter() else s.lastEncounter
+    val encounter = if (newChecks > oldChecks) generateEncounter(s.equippedWeapon) else s.lastEncounter
     val logs = if (encounter != null && newChecks > oldChecks) listOf("Rencontre : ${encounter.name} ×${encounter.quantity}") + s.log else listOf("+${"%.1f".format(km)} km parcouru") + s.log
     return s.copy(distance = newDistance, totalTravelKm = newTotal, lastEncounter = encounter, encounters = s.encounters + if (newChecks > oldChecks) 1 else 0, log = logs.take(100))
 }
@@ -642,17 +664,21 @@ private val encounterRules = listOf(
     EncounterRule("Orienteur obsédé", 0, 400, "Toutes", "Poursuite lors des rencontres suivantes ; quantité fixe : 1")
 )
 
-private fun generateEncounter(): Encounter? {
+private fun generateEncounter(equippedWeapon: String): Encounter? {
     val roll = (1..7).sumOf { Random.nextInt(1, 7) }
     val rule = encounterRules[roll - 7]
     // Campagne actuelle : Fitland. Les rencontres d'autres régions sont ignorées.
     if (!(rule.zones == "Toutes" || rule.zones.contains("Fitland")) || rule.zones == "Toutes sauf Fitland") return null
     val quantity = if (rule.effect.contains("Quantité fixe", ignoreCase = true) || rule.effect.contains("quantité fixe", ignoreCase = true)) 1 else Random.nextInt(1, 7) * if (roll == 7) 10 else 1
-    val contextRoll = (Random.nextInt(1, 7) + if (roll == 15) 2 else 0).coerceAtMost(6)
+    val contextDie = Random.nextInt(1, 7)
+    val equipmentBonus = weapons.firstOrNull { it.name == equippedWeapon }?.contextBonus ?: 0
+    val contextBonus = equipmentBonus + if (roll == 15) 2 else 0
+    // La table p. 42 s'arrête à 6 : les dépassements sont traités comme 6.
+    val contextRoll = (contextDie + contextBonus).coerceAtMost(6)
     val contexts = listOf("Vous êtes piégé !", "Une embuscade !", "Ils arrivent !", "Ils ne vous échapperont pas.", "Ils sont à votre merci.", "Ils n'ont rien vu.")
     val effects = listOf("10 burpees par adversaire", "Durée d'utilisation des objets ×2", "50 jumping jacks", "20 jumping jacks", "Aucun exercice", "Rencontre évitable")
     val safe = rule.effect.startsWith("Inoffensif")
-    return Encounter(rule.name, quantity, rule.hp, rule.reward * quantity, contexts[contextRoll - 1], effects[contextRoll - 1], roll, rule.hp * quantity, rule.effect, safe)
+    return Encounter(rule.name, quantity, rule.hp, rule.reward * quantity, contexts[contextRoll - 1], effects[contextRoll - 1], roll, rule.hp * quantity, rule.effect, safe, contextDie, contextBonus, if (equipmentBonus > 0) equippedWeapon else "")
 }
 
 private fun resolve(s: AppState, damage: Int): AppState = s.lastEncounter?.let { e ->
@@ -686,16 +712,18 @@ private fun saveState(context: Context, state: AppState) {
         put("unlockedClasses", JSONArray(c.unlockedClasses)); put("completedAchievements", JSONArray(c.completedAchievements))
     }
     val obj = JSONObject().apply {
-        put("schema", 5); put("character", character); put("distance", state.distance)
+        put("schema", 6); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("totalTravelKm", state.totalTravelKm)
         put("encounters", state.encounters)
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
+        put("equippedWeapon", state.equippedWeapon)
         put("quests", JSONArray(state.quests))
         state.lastEncounter?.let { e -> put("lastEncounter", JSONObject().apply {
             put("name", e.name); put("quantity", e.quantity); put("hp", e.hp)
             put("reward", e.reward); put("context", e.context); put("exercise", e.exercise)
             put("roll", e.roll); put("remainingHp", e.remainingHp); put("effect", e.effect); put("safe", e.safe)
+            put("contextDie", e.contextDie); put("contextBonus", e.contextBonus); put("contextWeapon", e.contextWeapon)
         }) }
     }
     context.getSharedPreferences("dof_save", Context.MODE_PRIVATE).edit()
@@ -749,7 +777,8 @@ private fun loadState(context: Context): AppState {
             Encounter(it.optString("name"), it.optInt("quantity"), it.optInt("hp"),
                 it.optInt("reward"), it.optString("context"), it.optString("exercise"),
                 it.optInt("roll", 0), it.optInt("remainingHp", it.optInt("hp") * it.optInt("quantity")),
-                it.optString("effect", ""), it.optBoolean("safe", false))
+                it.optString("effect", ""), it.optBoolean("safe", false),
+                it.optInt("contextDie", 0), it.optInt("contextBonus", 0), it.optString("contextWeapon", ""))
         }
         val baseState = AppState()
         baseState.copy(character = if (c.profileType == "advanced" && c.className in classAchievements) c.copy(unlockedClasses = (c.unlockedClasses + c.className).distinct()) else c,
@@ -758,6 +787,7 @@ private fun loadState(context: Context): AppState {
             destinationKm = obj.optDouble("destinationKm", baseState.destinationKm),
             totalTravelKm = obj.optDouble("totalTravelKm", obj.optDouble("distance", 0.0)),
             encounters = obj.optInt("encounters", 0), lastEncounter = encounter,
+            equippedWeapon = obj.optString("equippedWeapon", ""),
             log = strings("log", baseState.log), inventory = strings("inventory", baseState.inventory),
             quests = strings("quests", baseState.quests))
     } catch (_: Exception) { AppState() }
