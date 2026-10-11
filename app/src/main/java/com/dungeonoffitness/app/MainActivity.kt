@@ -184,7 +184,7 @@ fun DungeonApp() {
                                             log = (listOf("Shaker vigueur : dégâts ×2 jusqu’à la fin du combat.") + state.log).take(100)))
                                     "Shaker quantique" -> if (state.quantumMode.isBlank() && mode in listOf("Accélérer", "Ralentir"))
                                         update(state.copy(quantumMode = mode, inventory = removeOne(state.inventory, name),
-                                            log = (listOf("Shaker quantique : ${mode.lowercase()} le temps, facteur 2, pendant ce combat (application manuelle).") + state.log).take(100)))
+                                            log = (listOf("Shaker quantique : ${mode.lowercase()} le temps, facteur 2, pendant ce combat (durées recalculées dans les attaques).") + state.log).take(100)))
                                 }
                             }
                         },
@@ -381,7 +381,7 @@ private val fitlandPlaces = listOf(
                         Button(onClick = onUsePersuasion, modifier = Modifier.fillMaxWidth()) { Text("Consommer un Shaker persuasion — ignorer le combat") }
                     }
                     if (state.vigorActive) Text("Shaker vigueur actif : dégâts des attaques ×2 pour ce combat.")
-                    if (state.quantumMode.isNotBlank()) Text("Shaker quantique actif : ${state.quantumMode.lowercase()} le temps (facteur 2). Adapte manuellement la durée des exercices ; aucun changement automatique de dégâts.")
+                    if (state.quantumMode.isNotBlank()) Text("Shaker quantique actif : ${state.quantumMode.lowercase()} le temps (facteur 2). Les durées des attaques sont recalculées automatiquement ci-dessous ; dégâts inchangés.")
                     if ("Shaker poison" in state.inventory) {
                         Text("Shaker poison : 700 dégâts à distance sur une seule cible ; consommé après usage.")
                         Button(onClick = { onUseConsumable("Shaker poison", "") }, modifier = Modifier.fillMaxWidth()) { Text("Lancer un Shaker poison — 700 PV") }
@@ -390,7 +390,7 @@ private val fitlandPlaces = listOf(
                         Button(onClick = { onUseConsumable("Shaker vigueur", "") }, modifier = Modifier.fillMaxWidth()) { Text("Boire un Shaker vigueur — dégâts ×2") }
                     }
                     if ("Shaker quantique" in state.inventory && state.quantumMode.isBlank()) {
-                        Text("Shaker quantique : accélère ou ralentit le temps (facteur 2) durant le combat. Effet temporel à appliquer manuellement.")
+                        Text("Shaker quantique : accélère ou ralentit le temps (facteur 2) durant le combat. Les durées des armes sont adaptées automatiquement.")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = { onUseConsumable("Shaker quantique", "Accélérer") }) { Text("Accélérer") }
                             Button(onClick = { onUseConsumable("Shaker quantique", "Ralentir") }) { Text("Ralentir") }
@@ -409,7 +409,19 @@ private val fitlandPlaces = listOf(
                             Text("Exercice : ${w.exercise}")
                             if (w.ranged) Text("Effet : dégâts à distance")
                             if (w.contextBonus > 0) Text("Effet : +${w.contextBonus} au contexte, si équipée avant le tirage")
-                            if (e.context == "Une embuscade !" && w.unit.contains("sec.")) Text("Durée effective : ${(w.unit.substringBefore(' ').toIntOrNull() ?: 0) * 2} sec. par tranche (embuscade)")
+                            val baseSeconds = if (w.unit.contains("sec.")) w.unit.substringBefore(' ').toIntOrNull() else null
+                            if (baseSeconds != null) {
+                                val ambushFactor = if (e.context == "Une embuscade !") 2 else 1
+                                val adjustedSeconds = when (state.quantumMode) {
+                                    "Accélérer" -> (baseSeconds * ambushFactor + 1) / 2
+                                    "Ralentir" -> baseSeconds * ambushFactor * 2
+                                    else -> baseSeconds * ambushFactor
+                                }
+                                Text("Durée réelle à effectuer : $adjustedSeconds sec. par série (au lieu de $baseSeconds sec.).")
+                                if (state.quantumMode.isNotBlank()) Text("Shaker quantique : ${state.quantumMode.lowercase()} ×2 — conversion automatique des durées. Convention d'application : le livre ne précise pas le sens du facteur 2 pour les exercices.", style = MaterialTheme.typography.bodySmall)
+                            } else if (state.quantumMode.isNotBlank()) {
+                                Text("Cette arme fonctionne par exécution : le Shaker quantique ne change pas le nombre de répétitions. Aucun effet chiffré prévu par le livre pour cette arme.", style = MaterialTheme.typography.bodySmall)
+                            }
                             OutlinedTextField(value = attackCount, onValueChange = { attackCount = it.filter(Char::isDigit) },
                                 label = { Text("Nombre de séries / exécutions de ${w.unit}") },
                                 modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -424,6 +436,15 @@ private val fitlandPlaces = listOf(
                             }
                             val n = (attackCount.toIntOrNull() ?: 0).coerceIn(0, 1000)
                             val damagePreview = if (n > 0) attackDamage(w, n, state.inventory, pattesUsed, state.meditationActive, state.vigorActive) else 0
+                            if (baseSeconds != null && n > 0) {
+                                val ambushFactor = if (e.context == "Une embuscade !") 2 else 1
+                                val effective = when (state.quantumMode) {
+                                    "Accélérer" -> (baseSeconds * ambushFactor + 1) / 2
+                                    "Ralentir" -> baseSeconds * ambushFactor * 2
+                                    else -> baseSeconds * ambushFactor
+                                }
+                                Text("Temps total à réaliser : ${effective.toLong() * n} secondes pour $n série(s).")
+                            }
                             Button(enabled = n in 1..1000,
                                 onClick = { onWeaponAttack(w.name, n, pattesUsed); attackCount = "1"; pattesUsed = false },
                                 modifier = Modifier.fillMaxWidth()) { Text("Exercice réalisé — infliger $damagePreview PV") }
@@ -707,7 +728,9 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         item { Text("L'arme doit être sélectionnée AVANT le tirage : changer d'arme ne modifie pas rétroactivement une rencontre en cours.", style = MaterialTheme.typography.bodySmall) }
         item { Text("Équipement possédé", style = MaterialTheme.typography.titleMedium) }
         if (state.inventory.isEmpty()) item { Text("Aucun objet acheté.") }
-        items(state.inventory) { Text("◆ $it") }
+        items(state.inventory.groupingBy { it }.eachCount().toList().sortedBy { it.first }) { (name, quantity) ->
+            Text("◆ $name${if (quantity > 1) " x$quantity" else ""}")
+        }
         item { HorizontalDivider() }
         item { Text("Améliorations de combat", style = MaterialTheme.typography.titleMedium) }
         item { Text("Bonus fixes appliqués une fois par attaque, et non à chaque répétition. Les Pattes d’ours nécessitent de confirmer le comptage oral.", style = MaterialTheme.typography.bodySmall) }
@@ -725,7 +748,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             "Shaker persuasion" to "Ignore un combat, sans récompense",
             "Shaker poison" to "700 PV à distance sur une cible",
             "Shaker vigueur" to "Dégâts ×2 pendant un combat",
-            "Shaker quantique" to "Accélère ou ralentit le temps (facteur 2) pendant un combat ; gestion manuelle"
+            "Shaker quantique" to "Accélère ou ralentit les durées d’exercice (facteur 2) pendant un combat"
         )
         items(consumables) { (name, effect) ->
             Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
