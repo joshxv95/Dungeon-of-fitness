@@ -89,3 +89,12 @@ Décompresser et transférer le contenu du dossier `dungeon-fitness-app` à la r
 - Le contexte « Vous êtes piégé » affiche le total de burpees selon la quantité d'adversaires.
 - Les sauvegardes v1.4 restent compatibles.
 - Les effets complexes et objets consommables ne sont pas encore automatisés.
+
+
+## v1.6 — Objets d'amélioration (PDF p. 170-171)
+- Pattes d’ours : 50 PO, +50 PV à l'attaque si le comptage oral est confirmé.
+- Manuel de bottes de Maître : 1000 PO, +100 PV par attaque avec une arme.
+- Manuel de combat à mains nues : 500 PO, +50 PV par attaque avec des gants.
+- Les bonus fixes sont comptés une fois par attaque enregistrée, non par répétition.
+- Achats et objets conservés dans les sauvegardes antérieures.
+- Non inclus : Manuel de méditation, autres consommables, interactions avancées.
