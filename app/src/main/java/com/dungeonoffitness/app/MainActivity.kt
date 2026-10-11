@@ -45,7 +45,20 @@ private data class Character(
     val mentalDifficulty: String = "",
     val mentalBonus: Int = 0,
     val primaryActivity: String = "",
-    val specialAbility: String = ""
+    val specialAbility: String = "",
+    val unlockedClasses: List<String> = emptyList(),
+    val completedAchievements: List<String> = emptyList()
+)
+
+private val classAchievements = linkedMapOf(
+    "Éclaireur" to listOf("Survie", "Orientation", "Exploration"),
+    "Cavalier" to listOf("Chevauchée", "Obstacle", "Course"),
+    "Moine" to listOf("Discipline", "Nutrition", "Invocation"),
+    "Chasseur" to listOf("Nuit du chasseur", "Instinct du chasseur", "Expérience du chasseur"),
+    "Guerrier" to listOf("Premier sang", "Baptême du feu", "L’art de la guerre"),
+    "Mage" to listOf("Initiation aux arcanes magiques", "Diplôme d’école de magie", "Maîtrise des vents magiques"),
+    "Barde" to listOf("Gesticuleur", "Figurant", "Vedette"),
+    "Acrobate" to listOf("Araignée", "Chat", "Singe")
 )
 
 private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String)
@@ -78,8 +91,8 @@ fun DungeonApp() {
     var resetDialog by remember { mutableStateOf(false) }
     MaterialTheme(colorScheme = darkColorScheme()) {
         Scaffold(bottomBar = { NavigationBar {
-            listOf("home" to "Accueil", "adventure" to "Aventure", "character" to "Personnage", "inventory" to "Sac", "journal" to "Journal").forEach { (id, label) ->
-                NavigationBarItem(selected = tab == id, onClick = { tab = id }, icon = { Text(if (id == "home") "⌂" else if (id == "adventure") "⚔" else if (id == "character") "♙" else if (id == "inventory") "◆" else "▤") }, label = { Text(label) })
+            listOf("home" to "Accueil", "adventure" to "Aventure", "character" to "Personnage", "inventory" to "Sac", "journal" to "Journal", "application" to "Application").forEach { (id, label) ->
+                NavigationBarItem(selected = tab == id, onClick = { tab = id }, icon = { Text(if (id == "home") "⌂" else if (id == "adventure") "⚔" else if (id == "character") "♙" else if (id == "inventory") "◆" else if (id == "journal") "▤" else "⚙") }, label = { Text(label) })
             }
         }}) { pad ->
             Box(Modifier.padding(pad).fillMaxSize()) {
@@ -93,7 +106,9 @@ fun DungeonApp() {
                         }
                     }, onReset = { resetDialog = true })
                     "inventory" -> Inventory(state)
-                    else -> Journal(state)
+                    "journal" -> Journal(state)
+                    "application" -> ApplicationInfo()
+                    else -> Home(state) { tab = "adventure" }
                 }
             }
         }
@@ -203,7 +218,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
     return c.copy(profileType = "advanced", force = force, endurance = endurance, agility = agility,
         dexterity = dexterity, mental = mental, divinity = divinity, level = level,
         className = classes[activity] ?: "Non déterminée", primaryActivity = activity,
-        specialAbility = special, strengthPercent = strength, enduranceHours = hours,
+        specialAbility = special, unlockedClasses = (c.unlockedClasses + listOfNotNull(classes[activity])).distinct(), strengthPercent = strength, enduranceHours = hours,
         enduranceDistance = distance, agilityMoves = moves, dexterityPercent = precision,
         dexteritySeconds = seconds, mentalDifficulty = difficulty, mentalBonus = bonus)
 }
@@ -241,6 +256,40 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             item { Button(onClick = { if (name.isNotBlank()) { onUpdate(c.copy(name = name.trim())); editing = false } }) { Text("Enregistrer") } }
         }
         item { HorizontalDivider() }
+        if (profileLocked) {
+            item { Text("Caractéristiques", style = MaterialTheme.typography.titleMedium) }
+            if (c.profileType == "novice") {
+                item { StatRow("Vigueur", c.vigour) }; item { StatRow("Résistance", c.resistance) }; item { StatRow("Adaptation", c.adaptation) }
+            } else {
+                item { StatRow("Force", c.force) }; item { StatRow("Endurance", c.endurance) }
+                item { StatRow("Agilité", c.agility) }; item { StatRow("Dextérité", c.dexterity) }; item { StatRow("Mental", c.mental) }
+                item { Text("Discipline : ${c.primaryActivity.ifBlank { "Non renseignée" }}") }
+                item { Text("Capacité : ${c.specialAbility.ifBlank { "Non renseignée" }}") }
+            }
+        }
+        if (c.profileType == "advanced") {
+            item { HorizontalDivider() }
+            item { Text("Classes et accomplissements", style = MaterialTheme.typography.titleMedium) }
+            item { Text("Validation manuelle : coche uniquement les accomplissements réalisés. Aucun bonus n'est accordé automatiquement.", style = MaterialTheme.typography.bodySmall) }
+            val available = (c.unlockedClasses + c.className).filter { it in classAchievements }.distinct()
+            available.forEach { className ->
+                item { Text(className, style = MaterialTheme.typography.titleSmall) }
+                classAchievements[className].orEmpty().forEach { achievement ->
+                    val key = "$className::$achievement"
+                    item {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = key in c.completedAchievements, onCheckedChange = { checked ->
+                                val updated = if (checked) (c.completedAchievements + key).distinct() else c.completedAchievements - key
+                                onUpdate(c.copy(completedAchievements = updated))
+                            })
+                            Text(achievement)
+                        }
+                    }
+                }
+            }
+        }
+        item { HorizontalDivider() }
+        item { Text("Modifier le profil", style = MaterialTheme.typography.titleMedium) }
         item { Text("Type de profil", style = MaterialTheme.typography.titleMedium) }
         item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = mode == "novice", enabled = !profileLocked, onClick = { mode = "novice" }, label = { Text("Novice") })
@@ -257,9 +306,6 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             item { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = capable, onCheckedChange = { capable = it }); Text("Posture d'équilibre tenue") } }
             if (capable) item { OutlinedTextField(value = balance, onValueChange = { if (it.length <= 5 && it.all(Char::isDigit)) balance = it }, label = { Text("Répétitions sans reprendre appui") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
             item { Button(enabled = noviceValid && (!profileLocked || c.profileType == "novice"), onClick = { onUpdate(noviceProfile(c, pushups.toInt(), jacks.toInt(), balance.toInt(), capable)) }, modifier = Modifier.fillMaxWidth()) { Text("Enregistrer le profil novice") } }
-            if (c.profileType == "novice") {
-                item { StatRow("Vigueur", c.vigour) }; item { StatRow("Résistance", c.resistance) }; item { StatRow("Adaptation", c.adaptation) }
-            }
         } else {
             item { Text("Profil avancé · Les quatre Prières", style = MaterialTheme.typography.titleLarge) }
             item { Text("Les tests sont facultatifs : toute caractéristique non évaluée vaut 0. Les valeurs saisies sont conservées.") }
@@ -289,36 +335,6 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             item { Button(enabled = advancedValid && (!profileLocked || c.profileType == "advanced"), onClick = {
                 onUpdate(advancedProfile(c, strength.replace(',','.'), hours.replace(',','.'), distance.replace(',','.'), moves.replace(',','.'), precision.replace(',','.'), seconds.replace(',','.'), difficulty, bonus, activity, special))
             }, modifier = Modifier.fillMaxWidth()) { Text("Enregistrer le profil avancé") } }
-            if (c.profileType == "advanced") {
-                item { HorizontalDivider() }
-                item { StatRow("Force", c.force) }; item { StatRow("Endurance", c.endurance) }
-                item { StatRow("Agilité", c.agility) }; item { StatRow("Dextérité", c.dexterity) }
-                item { StatRow("Mental", c.mental) }
-                item { Text("Niveau : (${c.force} + ${c.endurance} + ${c.agility} + ${c.dexterity} + ${c.mental}) ÷ 10 = ${c.level} (arrondi inférieur, selon le livre)") }
-                item { Text("Compétence : ${c.primaryActivity} · Capacité : ${c.specialAbility.ifBlank { "Non renseignée" }}") }
-            }
-        }
-        if (c.profileType == "advanced") {
-            item { HorizontalDivider() }
-            item { Text("Classes et accomplissements", style = MaterialTheme.typography.titleMedium) }
-            item { Text("Les accomplissements ci-dessous sont des repères du livre, pas encore des objectifs validables. Ils ne rapportent aucun point automatiquement.") }
-            val accomplishments = mapOf(
-                "Éclaireur" to listOf("Survie", "Orientation", "Exploration"),
-                "Cavalier" to listOf("Chevauchée", "Obstacle", "Course"),
-                "Moine" to listOf("Discipline", "Nutrition", "Invocation"),
-                "Chasseur" to listOf("Nuit du chasseur", "Instinct du chasseur", "Expérience du chasseur"),
-                "Guerrier" to listOf("Premier sang", "Baptême du feu", "L’art de la guerre"),
-                "Mage" to listOf("Initiation aux arcanes magiques", "Diplôme d’école de magie", "Maîtrise des vents magiques"),
-                "Barde" to listOf("Gesticuleur", "Figurant", "Vedette"),
-                "Acrobate" to listOf("Araignée", "Chat", "Singe")
-            )
-            val list = accomplishments[c.className]
-            if (list != null) {
-                item { Text("Classe actuelle : ${c.className}", style = MaterialTheme.typography.titleSmall) }
-                list.forEach { achievement -> item { Text("◇ $achievement") } }
-            } else {
-                item { Text("Choisis une activité principale et enregistre le profil pour afficher les accomplissements de ta classe.") }
-            }
         }
         item { HorizontalDivider() }
         item { Text("Gestion de la sauvegarde", style = MaterialTheme.typography.titleMedium) }
@@ -327,6 +343,34 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
     }
 }
 @Composable private fun StatRow(name: String, value: Int) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(name); Text(value.toString(), style = MaterialTheme.typography.titleMedium) } }
+
+@Composable private fun ApplicationInfo() {
+    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
+        item { Text("Dungeon of Fitness · Version 0.7.0", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
+        listOf(
+            "Navigation entre les écrans",
+            "Déplacement manuel et jauge de 4 km (prototype)",
+            "Sauvegarde locale automatique",
+            "Profils novice et avancé et verrouillage du type",
+            "Calcul des caractéristiques et du niveau",
+            "Réinitialisation complète avec confirmation",
+            "Classes et historique des classes débloquées",
+            "Accomplissements : validation manuelle sauvegardée",
+            "Fiche : statistiques et accomplissements en haut"
+        ).forEach { feature -> item { Text("✓ $feature") } }
+        item { HorizontalDivider() }
+        item { Text("En développement", style = MaterialTheme.typography.titleMedium) }
+        listOf(
+            "Conditions officielles de validation des accomplissements",
+            "Carte complète et campagne du livre",
+            "Rencontres et combats fidèles aux tables officielles",
+            "Objets, quêtes et entraînements complets"
+        ).forEach { feature -> item { Text("○ $feature") } }
+        item { Text("Fonctionne hors ligne. Les rencontres et la destination actuelles restent provisoires.", style = MaterialTheme.typography.bodySmall) }
+    }
+}
 
 @Composable private fun Inventory(state: AppState) { LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { item { Text("Inventaire", style = MaterialTheme.typography.headlineSmall) }; item { Text("${state.character.po} PO") }; items(state.inventory) { Text("◆ $it") } } }
 @Composable private fun Journal(state: AppState) { LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { item { Text("Journal d'aventure", style = MaterialTheme.typography.headlineSmall) }; items(state.log) { Text(it) }; item { Text("Quêtes") }; items(state.quests) { Text("□ $it") } } }
@@ -379,9 +423,10 @@ private fun saveState(context: Context, state: AppState) {
         put("dexterityPercent", c.dexterityPercent); put("dexteritySeconds", c.dexteritySeconds)
         put("mentalDifficulty", c.mentalDifficulty); put("mentalBonus", c.mentalBonus)
         put("primaryActivity", c.primaryActivity); put("specialAbility", c.specialAbility)
+        put("unlockedClasses", JSONArray(c.unlockedClasses)); put("completedAchievements", JSONArray(c.completedAchievements))
     }
     val obj = JSONObject().apply {
-        put("schema", 3); put("character", character); put("distance", state.distance)
+        put("schema", 4); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("encounters", state.encounters)
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
@@ -394,6 +439,9 @@ private fun saveState(context: Context, state: AppState) {
     context.getSharedPreferences("dof_save", Context.MODE_PRIVATE).edit()
         .putString("state", obj.toString()).apply()
 }
+
+private fun readStringArray(array: JSONArray?): List<String> =
+    if (array == null) emptyList() else (0 until array.length()).map { array.optString(it) }
 
 private fun loadState(context: Context): AppState {
     val raw = context.getSharedPreferences("dof_save", Context.MODE_PRIVATE)
@@ -426,7 +474,9 @@ private fun loadState(context: Context): AppState {
             mentalDifficulty = cj.optString("mentalDifficulty", ""),
             mentalBonus = cj.optInt("mentalBonus", 0),
             primaryActivity = cj.optString("primaryActivity", ""),
-            specialAbility = cj.optString("specialAbility", "")
+            specialAbility = cj.optString("specialAbility", ""),
+            unlockedClasses = readStringArray(cj.optJSONArray("unlockedClasses")),
+            completedAchievements = readStringArray(cj.optJSONArray("completedAchievements"))
         )
         fun strings(key: String, fallback: List<String>): List<String> {
             val array = obj.optJSONArray(key) ?: return fallback
@@ -438,7 +488,7 @@ private fun loadState(context: Context): AppState {
                 it.optInt("reward"), it.optString("context"), it.optString("exercise"))
         }
         val baseState = AppState()
-        baseState.copy(character = c,
+        baseState.copy(character = if (c.profileType == "advanced" && c.className in classAchievements) c.copy(unlockedClasses = (c.unlockedClasses + c.className).distinct()) else c,
             distance = obj.optDouble("distance", 0.0),
             destination = obj.optString("destination", baseState.destination),
             destinationKm = obj.optDouble("destinationKm", baseState.destinationKm),

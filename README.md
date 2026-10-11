@@ -21,3 +21,9 @@ Décompresser et transférer le contenu du dossier `dungeon-fitness-app` à la r
 - Migration des sauvegardes v0.5, sans effacement des données.
 - Le verrouillage Novice/Avancé est conservé.
 - Limite : les conditions officielles détaillées des accomplissements ne sont pas encore intégrées ; aucun gain automatique n'est attribué.
+\n## v0.7.0 — correctifs et ergonomie
+- Correction effective des cases d'accomplissements, avec sauvegarde persistante.
+- Conservation des classes débloquées lors des changements de discipline.
+- Résumé des caractéristiques, classes et accomplissements placé avant les formulaires.
+- Onglet Application : numéro de version, fonctionnalités présentes et fonctionnalités à venir.
+- Compatibilité avec les sauvegardes précédentes.\n
