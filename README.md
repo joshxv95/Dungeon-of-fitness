@@ -82,3 +82,10 @@ Décompresser et transférer le contenu du dossier `dungeon-fitness-app` à la r
 - Affichage du bonus réel de l'arme active pendant la rencontre.
 - Données et sauvegardes des versions antérieures conservées.
 - Limites : les effets d'autres équipements, l'équipement initial et les règles complètes de combat restent à implémenter.
+
+
+## v1.5.0
+- Ajout des armes Sarbacane, Sabre féérique, Sceptre féérique et Tapis de mage de guerre, tirées du Guide touristique p. 172 et 175.
+- Le contexte « Vous êtes piégé » affiche le total de burpees selon la quantité d'adversaires.
+- Les sauvegardes v1.4 restent compatibles.
+- Les effets complexes et objets consommables ne sont pas encore automatisés.

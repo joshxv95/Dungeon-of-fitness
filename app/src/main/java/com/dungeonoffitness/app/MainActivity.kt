@@ -82,7 +82,11 @@ private val weapons = listOf(
     Weapon("Lance", 100, 100, "30 sec.", "Coups de pointe avec un manche à balai"),
     Weapon("Masse Gainer", 300, 300, "30 sec.", "Coups de taille avec un manche lesté ou une barre vide"),
     Weapon("Masse haltère", 150, 150, "30 sec.", "Coups de taille avec une bouteille remplie d'eau"),
-    Weapon("Perche Lance", 200, 200, "30 sec.", "Coups de pointe avec un manche à balai")
+    Weapon("Perche Lance", 200, 200, "30 sec.", "Coups de pointe avec un manche à balai"),
+    Weapon("Sarbacane", 50, 50, "10 sec.", "Vacuum : aspirer l’abdomen vers la colonne pour travailler le transverse"),
+    Weapon("Sabre féérique", 200, 50, "1 exécution", "Turkish Get Up : se relever du sol en utilisant une jambe et un bras"),
+    Weapon("Sceptre féérique", 200, 200, "10 sec.", "Climbers : ramener les genoux vers la poitrine en position de planche"),
+    Weapon("Tapis de mage de guerre", 500, 300, "1 exécution", "Enchaîner Warrior I, II et III, 10 secondes chacune, sans interruption", ranged = true)
 )
 
 private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String, val roll: Int = 0, val remainingHp: Int = hp * quantity, val effect: String = "", val safe: Boolean = false, val contextDie: Int = 0, val contextBonus: Int = 0, val contextWeapon: String = "")
@@ -297,7 +301,7 @@ private val fitlandPlaces = listOf(
                     if (e.effect.contains("Contexte +2")) Text("Effet Trollympien : +2 au contexte")
                 } else Text("Rencontre enregistrée avant v1.3 : jet de contexte initial indisponible.")
                 Text("Contexte : ${e.context}")
-                Text("Conséquence : ${e.exercise}")
+                Text("Conséquence : ${if (e.context == "Vous êtes piégé !") "${10 * e.quantity} burpees (10 × ${e.quantity} adversaires)" else e.exercise}")
                 if (e.context == "Une embuscade !") Text("Attention : la durée d’utilisation des objets est doublée. Pour les armes à durée, chaque tranche doit durer deux fois plus longtemps ; les dégâts par tranche restent identiques.")
                 if (e.effect.isNotBlank()) Text("Effet immédiat : ${e.effect}")
                 if (!e.safe) {
@@ -546,7 +550,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun ApplicationInfo() {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Dungeon of Fitness · Version 1.4.0", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Dungeon of Fitness · Version 1.5.0", style = MaterialTheme.typography.titleLarge) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
@@ -604,6 +608,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         items(state.inventory) { Text("◆ $it") }
         item { HorizontalDivider() }
         item { Text("Catalogue — armes et exercices du livre", style = MaterialTheme.typography.titleMedium) }
+        item { Text("21 armes et exercices, d’après le Guide touristique p. 163–175.", style = MaterialTheme.typography.bodySmall) }
         item { Text("Achat irréversible : le livre interdit la revente. Les règles de dotation initiale (10 PO par niveau à dépenser intégralement) ne sont pas encore automatisées.", style = MaterialTheme.typography.bodySmall) }
         items(weapons) { w ->
             Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
