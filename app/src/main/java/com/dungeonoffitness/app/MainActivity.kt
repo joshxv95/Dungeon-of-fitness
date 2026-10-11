@@ -94,13 +94,15 @@ private data class CombatUpgrade(val name: String, val price: Int, val bonus: In
 private val combatUpgrades = listOf(
     CombatUpgrade("Pattes d’ours", 50, 50, "Compter à voix haute les répétitions ou secondes de chaque attaque."),
     CombatUpgrade("Manuel de bottes de Maître", 1000, 100, "Améliore les dégâts provoqués par une arme."),
-    CombatUpgrade("Manuel de combat à mains nues", 500, 50, "Améliore les dégâts des gants et des parties du corps.")
+    CombatUpgrade("Manuel de combat à mains nues", 500, 50, "Améliore les dégâts des gants et des parties du corps."),
+    CombatUpgrade("Manuel de méditation", 1000, 100, "Méditer 60 secondes par adversaire pour +100 PV sur chacune des attaques du combat.")
 )
 // Le bonus fixe est ajouté une fois à chaque attaque déclarée, pas à chaque répétition.
-private fun attackDamage(weapon: Weapon, count: Int, inventory: List<String>, pattesUsed: Boolean): Int {
+private fun attackDamage(weapon: Weapon, count: Int, inventory: List<String>, pattesUsed: Boolean, meditationActive: Boolean = false): Int {
     val bonus = (if ("Manuel de bottes de Maître" in inventory) 100 else 0) +
         (if ("Manuel de combat à mains nues" in inventory && weapon.name.startsWith("Gants")) 50 else 0) +
-        (if (pattesUsed && "Pattes d’ours" in inventory) 50 else 0)
+        (if (pattesUsed && "Pattes d’ours" in inventory) 50 else 0) +
+        (if (meditationActive && "Manuel de méditation" in inventory) 100 else 0)
     return (weapon.damage.toLong() * count + bonus).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 }
 
@@ -117,6 +119,7 @@ private data class AppState(
     val log: List<String> = listOf("Le voyage commence. Le Disque-Fonte vous attend."),
     val inventory: List<String> = emptyList(),
     val equippedWeapon: String = "",
+    val meditationActive: Boolean = false,
     val quests: List<String> = listOf("Créer et suivre votre profil", "Tenir votre journal d'entraînement")
 )
 
@@ -149,9 +152,21 @@ fun DungeonApp() {
                         onWeaponAttack = { name, count, pattesUsed ->
                             val weapon = weapons.firstOrNull { it.name == name }
                             if (weapon != null && name in state.inventory && count > 0)
-                                update(resolve(state, attackDamage(weapon, count, state.inventory, pattesUsed)))
+                                update(resolve(state, attackDamage(weapon, count, state.inventory, pattesUsed, state.meditationActive)))
                         },
                         onSkip = { update(skipEncounter(state)) },
+                        onMeditate = {
+                            val e = state.lastEncounter
+                            if (e != null && !e.safe && "Manuel de méditation" in state.inventory && !state.meditationActive)
+                                update(state.copy(meditationActive = true, log = (listOf("Méditation effectuée : ${60 * e.quantity} secondes pour ${e.quantity} adversaire(s).") + state.log).take(100)))
+                        },
+                        onUsePersuasion = {
+                            val e = state.lastEncounter
+                            if (e != null && "Shaker persuasion" in state.inventory)
+                                update(state.copy(lastEncounter = null, meditationActive = false,
+                                    inventory = removeOne(state.inventory, "Shaker persuasion"),
+                                    log = (listOf("Shaker persuasion consommé : combat contre ${e.name} ignoré, sans récompense.") + state.log).take(100)))
+                        },
                         onPlan = { destination, km ->
                             update(state.copy(destination = destination, destinationKm = km, distance = 0.0,
                                 log = (listOf("Nouveau trajet vers $destination : ${"%.1f".format(km)} km (distance relevée sur la carte).") + state.log).take(100)))
@@ -182,7 +197,12 @@ fun DungeonApp() {
                                 distance = if (firstRegistration) 0.0 else state.distance))
                         }
                     }, onReset = { resetDialog = true })
-                    "inventory" -> Inventory(state, onUpgradeBuy = { upgrade ->
+                    "inventory" -> Inventory(state, onConsumableBuy = {
+                        if (state.character.po >= 100) update(state.copy(
+                            character = state.character.copy(po = state.character.po - 100),
+                            inventory = state.inventory + "Shaker persuasion",
+                            log = (listOf("Achat : Shaker persuasion (100 PO)") + state.log).take(100)))
+                    }, onUpgradeBuy = { upgrade ->
                         if (state.character.po >= upgrade.price && upgrade.name !in state.inventory)
                             update(state.copy(character = state.character.copy(po = state.character.po - upgrade.price),
                                 inventory = state.inventory + upgrade.name,
@@ -252,6 +272,8 @@ private val fitlandPlaces = listOf(
     onResolve: (Int) -> Unit,
     onWeaponAttack: (String, Int, Boolean) -> Unit,
     onSkip: () -> Unit,
+    onMeditate: () -> Unit,
+    onUsePersuasion: () -> Unit,
     onPlan: (String, Double) -> Unit,
     onArrive: () -> Unit
 ) {
@@ -326,6 +348,16 @@ private val fitlandPlaces = listOf(
                 if (e.context == "Une embuscade !") Text("Attention : la durée d’utilisation des objets est doublée. Pour les armes à durée, chaque tranche doit durer deux fois plus longtemps ; les dégâts par tranche restent identiques.")
                 if (e.effect.isNotBlank()) Text("Effet immédiat : ${e.effect}")
                 if (!e.safe) {
+                    if ("Manuel de méditation" in state.inventory) {
+                        if (state.meditationActive) Text("Méditation active : +100 PV sur chacune de vos attaques jusqu’à la fin de ce combat.")
+                        else Button(onClick = onMeditate, modifier = Modifier.fillMaxWidth()) {
+                            Text("J’ai médité ${60 * e.quantity} secondes (${e.quantity} × 60 sec.) — activer +100 PV/attaque")
+                        }
+                    }
+                    if ("Shaker persuasion" in state.inventory) {
+                        Text("Shaker persuasion : consommable officiel, permet d’ignorer le combat quel que soit le nombre d’adversaires.")
+                        Button(onClick = onUsePersuasion, modifier = Modifier.fillMaxWidth()) { Text("Consommer un Shaker persuasion — ignorer le combat") }
+                    }
                     val owned = weapons.filter { it.name in state.inventory }
                     if (owned.isNotEmpty()) {
                         Text("Attaquer avec l'équipement", style = MaterialTheme.typography.titleMedium)
@@ -345,6 +377,7 @@ private val fitlandPlaces = listOf(
                                 modifier = Modifier.fillMaxWidth(), singleLine = true)
                             if ("Manuel de bottes de Maître" in state.inventory) Text("Manuel de bottes de Maître : +100 PV par attaque")
                             if ("Manuel de combat à mains nues" in state.inventory && w.name.startsWith("Gants")) Text("Manuel de combat à mains nues : +50 PV par attaque")
+                            if (state.meditationActive) Text("Manuel de méditation : +100 PV par attaque (méditation déjà confirmée)")
                             if ("Pattes d’ours" in state.inventory) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(checked = pattesUsed, onCheckedChange = { pattesUsed = it })
@@ -352,7 +385,7 @@ private val fitlandPlaces = listOf(
                                 }
                             }
                             val n = (attackCount.toIntOrNull() ?: 0).coerceIn(0, 1000)
-                            val damagePreview = if (n > 0) attackDamage(w, n, state.inventory, pattesUsed) else 0
+                            val damagePreview = if (n > 0) attackDamage(w, n, state.inventory, pattesUsed, state.meditationActive) else 0
                             Button(enabled = n in 1..1000,
                                 onClick = { onWeaponAttack(w.name, n, pattesUsed); attackCount = "1"; pattesUsed = false },
                                 modifier = Modifier.fillMaxWidth()) { Text("Exercice réalisé — infliger $damagePreview PV") }
@@ -581,7 +614,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun ApplicationInfo() {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Dungeon of Fitness · Version 1.6.0", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Dungeon of Fitness · Version 1.7.0", style = MaterialTheme.typography.titleLarge) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
@@ -621,7 +654,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
     }
 }
 
-@Composable private fun Inventory(state: AppState, onEquip: (String) -> Unit, onBuy: (Weapon) -> Unit, onUpgradeBuy: (CombatUpgrade) -> Unit) {
+@Composable private fun Inventory(state: AppState, onEquip: (String) -> Unit, onBuy: (Weapon) -> Unit, onUpgradeBuy: (CombatUpgrade) -> Unit, onConsumableBuy: () -> Unit) {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Text("Sac et armurerie", style = MaterialTheme.typography.headlineSmall) }
         item { Text("Bourse : ${state.character.po} PO") }
@@ -649,6 +682,10 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             } }
         }
         item { HorizontalDivider() }
+        item { Text("Consommables", style = MaterialTheme.typography.titleMedium) }
+        item { Text("Shaker persuasion : 100 PO, usage unique. Ignore un combat quel que soit le nombre d’adversaires (sans butin).") }
+        item { Text("En stock : ${state.inventory.count { it == "Shaker persuasion" }}") }
+        item { Button(enabled = state.character.po >= 100, onClick = onConsumableBuy) { Text("Acheter un Shaker persuasion (100 PO)") } }
         item { Text("Catalogue — armes et exercices du livre", style = MaterialTheme.typography.titleMedium) }
         item { Text("21 armes et exercices, d’après le Guide touristique p. 163–175.", style = MaterialTheme.typography.bodySmall) }
         item { Text("Achat irréversible : le livre interdit la revente. Les règles de dotation initiale (10 PO par niveau à dépenser intégralement) ne sont pas encore automatisées.", style = MaterialTheme.typography.bodySmall) }
@@ -677,7 +714,7 @@ private fun travel(s: AppState, km: Double): AppState {
     val newChecks = kotlin.math.floor(newTotal / 6.0).toInt()
     val encounter = if (newChecks > oldChecks) generateEncounter(s.equippedWeapon) else s.lastEncounter
     val logs = if (encounter != null && newChecks > oldChecks) listOf("Rencontre : ${encounter.name} ×${encounter.quantity}") + s.log else listOf("+${"%.1f".format(km)} km parcouru") + s.log
-    return s.copy(distance = newDistance, totalTravelKm = newTotal, lastEncounter = encounter, encounters = s.encounters + if (newChecks > oldChecks) 1 else 0, log = logs.take(100))
+    return s.copy(distance = newDistance, totalTravelKm = newTotal, lastEncounter = encounter, meditationActive = if (newChecks > oldChecks) false else s.meditationActive, encounters = s.encounters + if (newChecks > oldChecks) 1 else 0, log = logs.take(100))
 }
 
 private data class EncounterRule(val name: String, val reward: Int, val hp: Int, val zones: String, val effect: String)
@@ -740,12 +777,17 @@ private fun generateEncounter(equippedWeapon: String): Encounter? {
 private fun resolve(s: AppState, damage: Int): AppState = s.lastEncounter?.let { e ->
     val remaining = (e.remainingHp - damage.coerceAtLeast(0)).coerceAtLeast(0)
     if (remaining > 0) s.copy(lastEncounter = e.copy(remainingHp = remaining), log = (listOf("${e.name} : $damage dégâts, $remaining PV restants") + s.log).take(100))
-    else s.copy(character = s.character.copy(po = s.character.po + e.reward), lastEncounter = null,
+    else s.copy(character = s.character.copy(po = s.character.po + e.reward), lastEncounter = null, meditationActive = false,
         log = (listOf("${e.name} vaincu(s), butin : ${e.reward} PO") + s.log).take(100))
 } ?: s
 
+private fun removeOne(items: List<String>, name: String): List<String> {
+    val index = items.indexOf(name)
+    return if (index < 0) items else items.filterIndexed { i, _ -> i != index }
+}
+
 private fun skipEncounter(s: AppState): AppState = s.lastEncounter?.let { e ->
-    s.copy(lastEncounter = null, log = (listOf("Rencontre terminée sans victoire : ${e.name}. En cas de fuite, retour à la zone de départ à effectuer.") + s.log).take(100))
+    s.copy(lastEncounter = null, meditationActive = false, log = (listOf("Rencontre terminée sans victoire : ${e.name}. En cas de fuite, retour à la zone de départ à effectuer.") + s.log).take(100))
 } ?: s
 
 // Sauvegarde locale, sans compte ni connexion. Compatible avec les données de la v0.1.
@@ -768,12 +810,12 @@ private fun saveState(context: Context, state: AppState) {
         put("unlockedClasses", JSONArray(c.unlockedClasses)); put("completedAchievements", JSONArray(c.completedAchievements))
     }
     val obj = JSONObject().apply {
-        put("schema", 7); put("character", character); put("distance", state.distance)
+        put("schema", 8); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("totalTravelKm", state.totalTravelKm)
         put("encounters", state.encounters)
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
-        put("equippedWeapon", state.equippedWeapon)
+        put("equippedWeapon", state.equippedWeapon); put("meditationActive", state.meditationActive)
         put("quests", JSONArray(state.quests))
         state.lastEncounter?.let { e -> put("lastEncounter", JSONObject().apply {
             put("name", e.name); put("quantity", e.quantity); put("hp", e.hp)
@@ -842,8 +884,8 @@ private fun loadState(context: Context): AppState {
             destination = obj.optString("destination", baseState.destination),
             destinationKm = obj.optDouble("destinationKm", baseState.destinationKm),
             totalTravelKm = obj.optDouble("totalTravelKm", obj.optDouble("distance", 0.0)),
-            encounters = obj.optInt("encounters", 0), lastEncounter = encounter,
-            equippedWeapon = obj.optString("equippedWeapon", ""),
+            encounters = obj.optInt("encounters", 0), lastEncounter = encounter, meditationActive = if (newChecks > oldChecks) false else s.meditationActive,
+            equippedWeapon = obj.optString("equippedWeapon", ""), meditationActive = obj.optBoolean("meditationActive", false),
             log = strings("log", baseState.log), inventory = strings("inventory", baseState.inventory),
             quests = strings("quests", baseState.quests))
     } catch (_: Exception) { AppState() }

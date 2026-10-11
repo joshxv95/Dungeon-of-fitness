@@ -98,3 +98,11 @@ Décompresser et transférer le contenu du dossier `dungeon-fitness-app` à la r
 - Les bonus fixes sont comptés une fois par attaque enregistrée, non par répétition.
 - Achats et objets conservés dans les sauvegardes antérieures.
 - Non inclus : Manuel de méditation, autres consommables, interactions avancées.
+
+
+## v1.7 — Méditation et Shaker persuasion
+- Manuel de méditation : 1000 PO, confirmation de 60 secondes de méditation par adversaire, +100 dégâts sur chaque attaque pendant ce combat.
+- Shaker persuasion : 100 PO par unité, stock cumulable, usage unique pour ignorer une rencontre sans récompense.
+- Effets temporaires réinitialisés après la rencontre et conservés pendant une rencontre en cours après redémarrage.
+- Les bonus de la v1.6 restent appliqués une fois par attaque enregistrée.
+- Autres shakers non encore implémentés.
