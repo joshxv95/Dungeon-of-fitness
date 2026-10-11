@@ -74,3 +74,11 @@ Décompresser et transférer le contenu du dossier `dungeon-fitness-app` à la r
 - Embuscade : rappel des durées doublées et durée effective affichée pour les armes temporisées.
 - Sauvegarde compatible avec v1.2 ; les rencontres antérieures n'ont pas de dé initial récupérable.
 - Les autres effets d'objets et capacités de classe restent manuels.
+
+## v1.4.0 — Extension de l'armurerie
+- Six armes supplémentaires du catalogue (Culotte de mage, Hallebarde lourde, Lance, Masse Gainer, Masse haltère, Perche Lance).
+- Bonus de contexte +2 de la Hallebarde lourde si active avant le tirage.
+- Identification explicite des armes à dégâts à distance (sans inventer de mécanique supplémentaire).
+- Affichage du bonus réel de l'arme active pendant la rencontre.
+- Données et sauvegardes des versions antérieures conservées.
+- Limites : les effets d'autres équipements, l'équipement initial et les règles complètes de combat restent à implémenter.

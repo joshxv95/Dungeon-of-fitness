@@ -64,19 +64,25 @@ private val classAchievements = linkedMapOf(
 // Catalogue initial transcrit du Guide touristique, pages 163 à 169.
 // Les objets modificateurs et les effets complexes seront intégrés séparément.
 private data class Weapon(val name: String, val price: Int, val damage: Int,
-    val unit: String, val exercise: String, val contextBonus: Int = 0)
+    val unit: String, val exercise: String, val contextBonus: Int = 0, val ranged: Boolean = false)
 private val weapons = listOf(
     Weapon("Gants", 10, 10, "10 sec.", "Punches : coups de poing rapides et fluides"),
     Weapon("Gants de vétéran", 20, 10, "10 sec.", "Punches : coups de poing rapides et fluides", contextBonus = 1),
     Weapon("Haltère", 20, 20, "1 exécution", "Push Up : une pompe, corps droit, bras près du corps"),
-    Weapon("Couteaux de lancer", 50, 10, "1 exécution", "Plank Rotation : en planche, rotation sur un bras"),
+    Weapon("Couteaux de lancer", 50, 10, "1 exécution", "Plank Rotation : en planche, rotation sur un bras", ranged = true),
     Weapon("Épée d'échauffement", 50, 50, "30 sec.", "Coups de taille avec une bouteille en plastique vide"),
     Weapon("Épée de bois", 50, 50, "30 sec.", "Coups de pointe avec une bouteille en plastique vide"),
-    Weapon("Arbalète", 100, 20, "1 exécution", "Rower Biceps Legs : mouvement de rameur avec les jambes en résistance"),
+    Weapon("Arbalète", 100, 20, "1 exécution", "Rower Biceps Legs : mouvement de rameur avec les jambes en résistance", ranged = true),
     Weapon("Épée de fonte", 150, 150, "30 sec.", "Coups de pointe avec une bouteille remplie d'eau"),
-    Weapon("Arc féérique", 200, 50, "10 sec.", "Maintenir la posture Warrior II (yoga)"),
-    Weapon("Arc khôl", 200, 100, "1 exécution", "Archer Push Up : pompe avec un bras tendu sur le côté"),
-    Weapon("Épée longue", 200, 200, "30 sec.", "Coups de taille et pointe, bouteille d'eau tenue à deux mains")
+    Weapon("Arc féérique", 200, 50, "10 sec.", "Maintenir la posture Warrior II (yoga)", ranged = true),
+    Weapon("Arc khôl", 200, 100, "1 exécution", "Archer Push Up : pompe avec un bras tendu sur le côté", ranged = true),
+    Weapon("Épée longue", 200, 200, "30 sec.", "Coups de taille et pointe, bouteille d'eau tenue à deux mains"),
+    Weapon("Culotte de mage", 200, 300, "30 sec.", "Crow : équilibre sur les bras, genoux hauts, regard devant", ranged = true),
+    Weapon("Hallebarde lourde", 200, 200, "1 exécution", "One Arm Push Up : pompe sur un seul bras", contextBonus = 2),
+    Weapon("Lance", 100, 100, "30 sec.", "Coups de pointe avec un manche à balai"),
+    Weapon("Masse Gainer", 300, 300, "30 sec.", "Coups de taille avec un manche lesté ou une barre vide"),
+    Weapon("Masse haltère", 150, 150, "30 sec.", "Coups de taille avec une bouteille remplie d'eau"),
+    Weapon("Perche Lance", 200, 200, "30 sec.", "Coups de pointe avec un manche à balai")
 )
 
 private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String, val roll: Int = 0, val remainingHp: Int = hp * quantity, val effect: String = "", val safe: Boolean = false, val contextDie: Int = 0, val contextBonus: Int = 0, val contextWeapon: String = "")
@@ -287,7 +293,7 @@ private val fitlandPlaces = listOf(
                 Text("PV restants : ${e.remainingHp} / ${e.hp * e.quantity} · Butin potentiel : ${e.reward} PO")
                 if (e.contextDie > 0) {
                     Text("Dé de contexte : ${e.contextDie} + ${e.contextBonus} = ${(e.contextDie + e.contextBonus).coerceAtMost(6)}")
-                    if (e.contextWeapon.isNotBlank()) Text("Bonus d’équipement : ${e.contextWeapon} (+1)")
+                    if (e.contextWeapon.isNotBlank()) Text("Bonus d’équipement : ${e.contextWeapon} (+${weapons.firstOrNull { it.name == e.contextWeapon }?.contextBonus ?: 0})")
                     if (e.effect.contains("Contexte +2")) Text("Effet Trollympien : +2 au contexte")
                 } else Text("Rencontre enregistrée avant v1.3 : jet de contexte initial indisponible.")
                 Text("Contexte : ${e.context}")
@@ -306,6 +312,8 @@ private val fitlandPlaces = listOf(
                         val w = owned.firstOrNull { it.name == selectedWeapon }
                         if (w != null) {
                             Text("Exercice : ${w.exercise}")
+                            if (w.ranged) Text("Effet : dégâts à distance")
+                            if (w.contextBonus > 0) Text("Effet : +${w.contextBonus} au contexte, si équipée avant le tirage")
                             if (e.context == "Une embuscade !" && w.unit.contains("sec.")) Text("Durée effective : ${(w.unit.substringBefore(' ').toIntOrNull() ?: 0) * 2} sec. par tranche (embuscade)")
                             OutlinedTextField(value = attackCount, onValueChange = { attackCount = it.filter(Char::isDigit) },
                                 label = { Text("Nombre de séries / exécutions de ${w.unit}") },
@@ -538,7 +546,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun ApplicationInfo() {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Dungeon of Fitness · Version 1.3.0", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Dungeon of Fitness · Version 1.4.0", style = MaterialTheme.typography.titleLarge) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
@@ -595,13 +603,14 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         if (state.inventory.isEmpty()) item { Text("Aucun objet acheté.") }
         items(state.inventory) { Text("◆ $it") }
         item { HorizontalDivider() }
-        item { Text("Catalogue — premières armes du livre", style = MaterialTheme.typography.titleMedium) }
+        item { Text("Catalogue — armes et exercices du livre", style = MaterialTheme.typography.titleMedium) }
         item { Text("Achat irréversible : le livre interdit la revente. Les règles de dotation initiale (10 PO par niveau à dépenser intégralement) ne sont pas encore automatisées.", style = MaterialTheme.typography.bodySmall) }
         items(weapons) { w ->
             Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text("${w.name} — ${w.price} PO", style = MaterialTheme.typography.titleMedium)
                 Text("${w.damage} PV / ${w.unit}")
                 Text(w.exercise)
+                if (w.ranged) Text("Effet officiel : dégâts à distance")
                 if (w.contextBonus > 0) Text("Effet officiel : +${w.contextBonus} au jet de contexte (si arme active lors du tirage)")
                 Button(enabled = state.character.po >= w.price && w.name !in state.inventory,
                     onClick = { onBuy(w) }) { Text(if (w.name in state.inventory) "Déjà possédé" else "Acheter (${w.price} PO)") }
