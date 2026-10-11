@@ -106,3 +106,12 @@ Décompresser et transférer le contenu du dossier `dungeon-fitness-app` à la r
 - Effets temporaires réinitialisés après la rencontre et conservés pendant une rencontre en cours après redémarrage.
 - Les bonus de la v1.6 restent appliqués une fois par attaque enregistrée.
 - Autres shakers non encore implémentés.
+
+
+## Version 1.10.0 — mises à jour et tests
+
+- Signature debug **fixe** avec `app/debug-signing/dof-test-debug.jks` (clé de TEST publique, jamais pour la production). Conserver exactement cette clé dans toutes les futures versions pour autoriser les installations par-dessus cette version.
+- **Important :** les APK antérieurs ont été signés par des clés debug variables de GitHub Actions. Une dernière désinstallation peut être nécessaire pour passer à v1.10.0 ; cela supprime les données locales. Faire les captures/relevés utiles avant. Une signature différente ne peut pas être corrigée par une hausse de versionCode.
+- VersionCode 110 pour permettre les mises à jour suivantes (utiliser 111, 112, etc.).
+- Dans le Sac, +100 / +1000 PO pour les tests uniquement (hors règles du livre, persistant).
+- Shaker illusion : achat, stock, consommation, statut sauvegardé pendant le combat. Son effet d'alliés illusoires est affiché sans inventer de bonus de dégâts.

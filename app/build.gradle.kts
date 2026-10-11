@@ -5,7 +5,15 @@ plugins {
 }
 
 android { namespace = "com.dungeonoffitness.app"; compileSdk = 35
-    defaultConfig { applicationId = "com.dungeonoffitness.app"; minSdk = 26; targetSdk = 35; versionCode = 19; versionName = "1.9.0" }
+    defaultConfig { applicationId = "com.dungeonoffitness.app"; minSdk = 26; targetSdk = 35; versionCode = 110; versionName = "1.10.0" }
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug-signing/dof-test-debug.jks")
+            storePassword = "android"
+            keyAlias = "dof-debug"
+            keyPassword = "android"
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

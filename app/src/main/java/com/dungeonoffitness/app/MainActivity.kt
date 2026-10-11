@@ -122,6 +122,7 @@ private data class AppState(
     val meditationActive: Boolean = false,
     val vigorActive: Boolean = false,
     val quantumMode: String = "",
+    val illusionActive: Boolean = false,
     val quests: List<String> = listOf("Créer et suivre votre profil", "Tenir votre journal d'entraînement")
 )
 
@@ -165,7 +166,7 @@ fun DungeonApp() {
                         onUsePersuasion = {
                             val e = state.lastEncounter
                             if (e != null && "Shaker persuasion" in state.inventory)
-                                update(state.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "",
+                                update(state.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false,
                                     inventory = removeOne(state.inventory, "Shaker persuasion"),
                                     log = (listOf("Shaker persuasion consommé : combat contre ${e.name} ignoré, sans récompense.") + state.log).take(100)))
                         },
@@ -182,6 +183,9 @@ fun DungeonApp() {
                                     "Shaker vigueur" -> if (!state.vigorActive)
                                         update(state.copy(vigorActive = true, inventory = removeOne(state.inventory, name),
                                             log = (listOf("Shaker vigueur : dégâts ×2 jusqu’à la fin du combat.") + state.log).take(100)))
+                                    "Shaker illusion" -> if (!state.illusionActive)
+                                        update(state.copy(illusionActive = true, inventory = removeOne(state.inventory, name),
+                                            log = (listOf("Shaker illusion : adversaires sous illusion, vous avez des alliés. Effets numériques non précisés par le livre.") + state.log).take(100)))
                                     "Shaker quantique" -> if (state.quantumMode.isBlank() && mode in listOf("Accélérer", "Ralentir"))
                                         update(state.copy(quantumMode = mode, inventory = removeOne(state.inventory, name),
                                             log = (listOf("Shaker quantique : ${mode.lowercase()} le temps, facteur 2, pendant ce combat (durées recalculées dans les attaques).") + state.log).take(100)))
@@ -218,8 +222,12 @@ fun DungeonApp() {
                                 distance = if (firstRegistration) 0.0 else state.distance))
                         }
                     }, onReset = { resetDialog = true })
-                    "inventory" -> Inventory(state, onConsumableBuy = { name ->
-                        if (name in listOf("Shaker persuasion", "Shaker poison", "Shaker vigueur", "Shaker quantique") && state.character.po >= 100)
+                    "inventory" -> Inventory(state, onTestGold = { amount ->
+                        if (amount in 1..10000 && state.character.po <= Int.MAX_VALUE - amount)
+                            update(state.copy(character = state.character.copy(po = state.character.po + amount),
+                                log = (listOf("MODE TEST : +$amount PO ajoutés (hors règles officielles).") + state.log).take(100)))
+                    }, onConsumableBuy = { name ->
+                        if (name in listOf("Shaker persuasion", "Shaker poison", "Shaker vigueur", "Shaker quantique", "Shaker illusion") && state.character.po >= 100)
                             update(state.copy(character = state.character.copy(po = state.character.po - 100),
                                 inventory = state.inventory + name,
                                 log = (listOf("Achat : $name (100 PO)") + state.log).take(100)))
@@ -379,6 +387,10 @@ private val fitlandPlaces = listOf(
                     if ("Shaker persuasion" in state.inventory) {
                         Text("Shaker persuasion : consommable officiel, permet d’ignorer le combat quel que soit le nombre d’adversaires.")
                         Button(onClick = onUsePersuasion, modifier = Modifier.fillMaxWidth()) { Text("Consommer un Shaker persuasion — ignorer le combat") }
+                    }
+                    if (state.illusionActive) Text("Shaker illusion actif : les adversaires croient que vous avez des alliés. Le livre ne précise pas de bonus numérique ; appliquer les conséquences avec le MJ.")
+                    if ("Shaker illusion" in state.inventory && !state.illusionActive) {
+                        Button(onClick = { onUseConsumable("Shaker illusion", "") }, modifier = Modifier.fillMaxWidth()) { Text("Utiliser un Shaker illusion — créer des alliés illusoires") }
                     }
                     if (state.vigorActive) Text("Shaker vigueur actif : dégâts des attaques ×2 pour ce combat.")
                     if (state.quantumMode.isNotBlank()) Text("Shaker quantique actif : ${state.quantumMode.lowercase()} le temps (facteur 2). Les durées des attaques sont recalculées automatiquement ci-dessous ; dégâts inchangés.")
@@ -713,10 +725,18 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
     }
 }
 
-@Composable private fun Inventory(state: AppState, onEquip: (String) -> Unit, onBuy: (Weapon) -> Unit, onUpgradeBuy: (CombatUpgrade) -> Unit, onConsumableBuy: (String) -> Unit) {
+@Composable private fun Inventory(state: AppState, onEquip: (String) -> Unit, onBuy: (Weapon) -> Unit, onUpgradeBuy: (CombatUpgrade) -> Unit, onConsumableBuy: (String) -> Unit, onTestGold: (Int) -> Unit) {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Text("Sac et armurerie", style = MaterialTheme.typography.headlineSmall) }
         item { Text("Bourse : ${state.character.po} PO") }
+        item { Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Laboratoire de test — PO fictifs", style = MaterialTheme.typography.titleMedium)
+            Text("Hors règles du livre : ces boutons ajoutent des PO à la sauvegarde actuelle pour tester les achats. Désactiver leur usage lors d'une vraie partie.", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { onTestGold(100) }) { Text("+100 PO") }
+                OutlinedButton(onClick = { onTestGold(1000) }) { Text("+1 000 PO") }
+            }
+        } } }
         item { Text("Arme active pour les prochains jets de rencontre", style = MaterialTheme.typography.titleMedium) }
         item { Text(if (state.equippedWeapon.isBlank()) "Aucune arme active" else "Active : ${state.equippedWeapon}") }
         item { OutlinedButton(onClick = { onEquip("") }) { Text("Aucune arme active") } }
@@ -748,7 +768,8 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             "Shaker persuasion" to "Ignore un combat, sans récompense",
             "Shaker poison" to "700 PV à distance sur une cible",
             "Shaker vigueur" to "Dégâts ×2 pendant un combat",
-            "Shaker quantique" to "Accélère ou ralentit les durées d’exercice (facteur 2) pendant un combat"
+            "Shaker quantique" to "Accélère ou ralentit les durées d’exercice (facteur 2) pendant un combat",
+            "Shaker illusion" to "Vos adversaires vous voient accompagné d’alliés (effet narratif officiel)"
         )
         items(consumables) { (name, effect) ->
             Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -851,7 +872,7 @@ private fun generateEncounter(equippedWeapon: String): Encounter? {
 private fun resolve(s: AppState, damage: Int): AppState = s.lastEncounter?.let { e ->
     val remaining = (e.remainingHp - damage.coerceAtLeast(0)).coerceAtLeast(0)
     if (remaining > 0) s.copy(lastEncounter = e.copy(remainingHp = remaining), log = (listOf("${e.name} : $damage dégâts, $remaining PV restants") + s.log).take(100))
-    else s.copy(character = s.character.copy(po = s.character.po + e.reward), lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "",
+    else s.copy(character = s.character.copy(po = s.character.po + e.reward), lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false,
         log = (listOf("${e.name} vaincu(s), butin : ${e.reward} PO") + s.log).take(100))
 } ?: s
 
@@ -861,7 +882,7 @@ private fun removeOne(items: List<String>, name: String): List<String> {
 }
 
 private fun skipEncounter(s: AppState): AppState = s.lastEncounter?.let { e ->
-    s.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", log = (listOf("Rencontre terminée sans victoire : ${e.name}. En cas de fuite, retour à la zone de départ à effectuer.") + s.log).take(100))
+    s.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, log = (listOf("Rencontre terminée sans victoire : ${e.name}. En cas de fuite, retour à la zone de départ à effectuer.") + s.log).take(100))
 } ?: s
 
 // Sauvegarde locale, sans compte ni connexion. Compatible avec les données de la v0.1.
@@ -890,7 +911,7 @@ private fun saveState(context: Context, state: AppState) {
         put("encounters", state.encounters)
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
         put("equippedWeapon", state.equippedWeapon); put("meditationActive", state.meditationActive)
-        put("vigorActive", state.vigorActive); put("quantumMode", state.quantumMode)
+        put("vigorActive", state.vigorActive); put("quantumMode", state.quantumMode); put("illusionActive", state.illusionActive)
         put("quests", JSONArray(state.quests))
         state.lastEncounter?.let { e -> put("lastEncounter", JSONObject().apply {
             put("name", e.name); put("quantity", e.quantity); put("hp", e.hp)
@@ -961,7 +982,7 @@ private fun loadState(context: Context): AppState {
             totalTravelKm = obj.optDouble("totalTravelKm", obj.optDouble("distance", 0.0)),
             encounters = obj.optInt("encounters", 0), lastEncounter = encounter,
             equippedWeapon = obj.optString("equippedWeapon", ""), meditationActive = obj.optBoolean("meditationActive", false),
-            vigorActive = obj.optBoolean("vigorActive", false), quantumMode = obj.optString("quantumMode", ""),
+            vigorActive = obj.optBoolean("vigorActive", false), quantumMode = obj.optString("quantumMode", ""), illusionActive = obj.optBoolean("illusionActive", false),
             log = strings("log", baseState.log), inventory = strings("inventory", baseState.inventory),
             quests = strings("quests", baseState.quests))
     } catch (_: Exception) { AppState() }
