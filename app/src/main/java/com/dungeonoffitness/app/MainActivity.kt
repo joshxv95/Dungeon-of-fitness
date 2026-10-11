@@ -61,7 +61,7 @@ private val classAchievements = linkedMapOf(
     "Acrobate" to listOf("Araignée", "Chat", "Singe")
 )
 
-private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String)
+private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String, val roll: Int = 0, val remainingHp: Int = hp * quantity, val effect: String = "", val safe: Boolean = false)
 
 private data class AppState(
     val character: Character = Character(),
@@ -101,7 +101,8 @@ fun DungeonApp() {
                     "home" -> Home(state) { tab = "adventure" }
                     "adventure" -> Adventure(state,
                         onTravel = { km -> update(travel(state, km)) },
-                        onResolve = { update(resolve(state)) },
+                        onResolve = { damage -> update(resolve(state, damage)) },
+                        onSkip = { update(skipEncounter(state)) },
                         onPlan = { destination, km ->
                             update(state.copy(destination = destination, destinationKm = km, distance = 0.0,
                                 log = (listOf("Nouveau trajet vers $destination : ${"%.1f".format(km)} km (distance relevée sur la carte).") + state.log).take(100)))
@@ -187,13 +188,15 @@ private val fitlandPlaces = listOf(
 @Composable private fun Adventure(
     state: AppState,
     onTravel: (Double) -> Unit,
-    onResolve: () -> Unit,
+    onResolve: (Int) -> Unit,
+    onSkip: () -> Unit,
     onPlan: (String, Double) -> Unit,
     onArrive: () -> Unit
 ) {
     var selectedPlace by remember { mutableStateOf("Fontaria") }
     var expanded by remember { mutableStateOf(false) }
     var distanceInput by remember { mutableStateOf("") }
+    var damageInput by remember { mutableStateOf("") }
     val novice = state.character.profileType == "novice"
     val unit = if (novice) "min" else "km"
     val pending = state.lastEncounter != null
@@ -244,13 +247,25 @@ private val fitlandPlaces = listOf(
         item { Text("Une rencontre est déclenchée tous les 6 ${unit} cumulés. Le contenu des rencontres reste provisoire et ne reproduit pas encore la table officielle.", style = MaterialTheme.typography.bodySmall) }
         state.lastEncounter?.let { e ->
             item { HorizontalDivider() }
-            item { Text("⚠ RENCONTRE (PROTOTYPE)", style = MaterialTheme.typography.headlineSmall) }
-            item { Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("${e.name} ×${e.quantity}", style = MaterialTheme.typography.titleLarge)
-                Text("PV : ${e.hp} chacun · Récompense : ${e.reward} PO")
+            item { Text("⚠ RENCONTRE — TABLE DU LIVRE", style = MaterialTheme.typography.headlineSmall) }
+            item { Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("${e.name} ×${e.quantity} (jet : ${e.roll})", style = MaterialTheme.typography.titleLarge)
+                Text("PV restants : ${e.remainingHp} / ${e.hp * e.quantity} · Butin potentiel : ${e.reward} PO")
                 Text("Contexte : ${e.context}")
-                Text("Épreuve : ${e.exercise}")
-                Button(onClick = onResolve, modifier = Modifier.fillMaxWidth()) { Text("J'AI TERMINÉ") }
+                Text("Conséquence : ${e.exercise}")
+                if (e.effect.isNotBlank()) Text("Effet immédiat : ${e.effect}")
+                if (!e.safe) {
+                    OutlinedTextField(value = damageInput, onValueChange = { damageInput = it.filter(Char::isDigit) },
+                        label = { Text("Dégâts infligés avec les objets du livre (PV)") },
+                        modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    Button(enabled = (damageInput.toIntOrNull() ?: 0) > 0,
+                        onClick = { onResolve(damageInput.toInt()); damageInput = "" },
+                        modifier = Modifier.fillMaxWidth()) { Text("Enregistrer les dégâts") }
+                }
+                OutlinedButton(onClick = onSkip, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (e.safe) "Terminer la rencontre pacifique" else "Fuir / abandonner (retour manuel requis)")
+                }
+                Text("Les exercices et effets immédiats doivent être réalisés manuellement. En cas de fuite, applique le retour vers la zone de départ prévu p. 42.", style = MaterialTheme.typography.bodySmall)
             } } }
         }
         item { Text("Journal", style = MaterialTheme.typography.titleMedium) }
@@ -462,12 +477,14 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun ApplicationInfo() {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Dungeon of Fitness · Version 1.0.0", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Dungeon of Fitness · Version 1.1.0", style = MaterialTheme.typography.titleLarge) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
             "Planification manuelle d'un trajet sur la carte du livre",
             "Suivi des distances cumulées et validation d'arrivée",
+            "Rencontres : table officielle Fitland (7D6), quantité, contexte et PV",
+            "Suivi manuel des dégâts et butin à la victoire",
             "Mode novice : distance de carte convertie en minutes",
             "Position initiale selon la classe à la création du personnage",
             "Sauvegarde locale automatique",
@@ -491,10 +508,10 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         listOf(
             "Conditions officielles de validation des accomplissements",
             "Carte interactive et calcul automatique des itinéraires",
-            "Rencontres et combats fidèles aux tables officielles",
+            "Combats automatisés avec dégâts calculés depuis l'équipement",
             "Objets, quêtes et entraînements complets"
         ).forEach { feature -> item { Text("○ $feature") } }
-        item { Text("Fonctionne hors ligne. Les rencontres restent provisoires ; distances à saisir depuis la carte officielle.", style = MaterialTheme.typography.bodySmall) }
+        item { Text("Rencontres : table officielle p. 43 et contextes p. 42. Effets spéciaux et équipement à appliquer manuellement.", style = MaterialTheme.typography.bodySmall) }
     }
 }
 
@@ -510,29 +527,72 @@ private fun travel(s: AppState, km: Double): AppState {
     val newChecks = kotlin.math.floor(newTotal / 6.0).toInt()
     val encounter = if (newChecks > oldChecks) generateEncounter() else s.lastEncounter
     val logs = if (encounter != null && newChecks > oldChecks) listOf("Rencontre : ${encounter.name} ×${encounter.quantity}") + s.log else listOf("+${"%.1f".format(km)} km parcouru") + s.log
-    return s.copy(distance = newDistance, totalTravelKm = newTotal, lastEncounter = encounter, encounters = s.encounters + if (encounter != null && newChecks > oldChecks) 1 else 0, log = logs.take(100))
+    return s.copy(distance = newDistance, totalTravelKm = newTotal, lastEncounter = encounter, encounters = s.encounters + if (newChecks > oldChecks) 1 else 0, log = logs.take(100))
 }
 
-private fun resolve(s: AppState): AppState = s.lastEncounter?.let { e -> s.copy(character = s.character.copy(po = s.character.po + e.reward), lastEncounter = null, log = listOf("${e.name} vaincu(s). +${e.reward} PO.") + s.log) } ?: s
+private data class EncounterRule(val name: String, val reward: Int, val hp: Int, val zones: String, val effect: String)
+private val encounterRules = listOf(
+    EncounterRule("Liquebide", 5, 50, "Fitland, Maaskinland", "Quantité ×10"),
+    EncounterRule("Chardio", 5, 50, "Toutes", ""),
+    EncounterRule("Gnome Zombie", 10, 100, "Fitland, Maaskinland", ""),
+    EncounterRule("Acronide", 10, 100, "Fitland, Maaskinland", ""),
+    EncounterRule("Selfine", 10, 100, "Fitland, Maaskinland", "Fermez les yeux"),
+    EncounterRule("Gobeleau", 10, 100, "Toutes", ""),
+    EncounterRule("Fitnéant", 10, 100, "Fitland, Maaskinland", ""),
+    EncounterRule("Gnome zombie", 10, 100, "Maaskinland", ""),
+    EncounterRule("Trollympien", 150, 1500, "Fitland", "Contexte +2"),
+    EncounterRule("Plantosaure", 15, 150, "Fitland, Maaskinland, Anabolie", ""),
+    EncounterRule("Zomfit", 15, 150, "Fitland, Anabolie", ""),
+    EncounterRule("Squatosaure", 20, 200, "Fitland, Pays des Khôls, Anabolie", ""),
+    EncounterRule("Zumbhaka", 30, 300, "Fitland, Anabolie", "Dansez"),
+    EncounterRule("Pillard Martial", 40, 400, "Toutes", ""),
+    EncounterRule("Mesossé", 50, 500, "Fitland, Anabolie", ""),
+    EncounterRule("Guerrier Khol", 50, 500, "Toutes", ""),
+    EncounterRule("Orcfit", 50, 500, "Fitland", "Posing culturiste avant chaque attaque"),
+    EncounterRule("Nosferathonien", 50, 500, "Toutes", ""),
+    EncounterRule("Transpinja", 70, 700, "Toutes", ""),
+    EncounterRule("Permabulker", 100, 1000, "Toutes", ""),
+    EncounterRule("Chathlète", 100, 1000, "Fitland", ""),
+    EncounterRule("Powerchat", 150, 1500, "Fitland", ""),
+    EncounterRule("Abomination", 300, 3000, "Fitland, Maaskinland", "Quantité fixe : 1"),
+    EncounterRule("Bulkœil", 300, 3000, "Toutes", "Quantité fixe : 1"),
+    EncounterRule("Chose", 300, 3000, "Anabolie", "Quantité fixe : 1"),
+    EncounterRule("Hydrocoolique", 900, 9000, "Falaises Olympiques, Omega Beach", "Quantité fixe : 1"),
+    EncounterRule("Nécrolifter", 300, 3000, "Toutes", "Quantité fixe : 1"),
+    EncounterRule("Marchand Itinérant", 0, 0, "Toutes sauf Fitland", "Inoffensif : commerce"),
+    EncounterRule("Gardes du Fitland", 1000, 10000, "Fitland", "Perdez tous vos PO ou affrontez-les ; quantité fixe : 1"),
+    EncounterRule("Bulker Fruité", 400, 4000, "Toutes", "Inoffensif : obtenez un shaker de votre choix"),
+    EncounterRule("Chevalier Templiométrique", 300, 3000, "Toutes", "Inoffensif : aucune rencontre jusqu’à destination"),
+    EncounterRule("Elfit", 100, 1000, "Toutes", "Inoffensif : échangez un objet contre un bijou de mage"),
+    EncounterRule("Amazone", 100, 1000, "Toutes", "Inoffensif : échangez un objet contre un objet féérique"),
+    EncounterRule("Bibilithe", 200, 2000, "Toutes", "Perdez un objet et tous vos PO ou affrontez-le"),
+    EncounterRule("Clan Nazcool", 900, 9000, "Toutes", "Affrontez-les ou fin de la poursuite de l’Orienteur ; quantité fixe : 1"),
+    EncounterRule("Orienteur obsédé", 0, 400, "Toutes", "Poursuite lors des rencontres suivantes ; quantité fixe : 1")
+)
 
-private fun generateEncounter(): Encounter {
-    val roll = (1..7).sumOf { Random.nextInt(1,7) }
-    val table = listOf(
-        Encounter("Liquebide",1,50,5,"Ils arrivent !","50 Jumping Jacks"),
-        Encounter("Chardio",1,50,5,"Ils sont à votre merci.","Rien"),
-        Encounter("Gnome Zombie",1,100,10,"Une embuscade !","50 Jumping Jacks"),
-        Encounter("Acronide",1,100,10,"Ils arrivent !","50 Jumping Jacks"),
-        Encounter("Gobeleau",1,100,10,"Ils sont à votre merci.","Rien"),
-        Encounter("Fitnéant",1,100,10,"Vous êtes piégé !","10 Burpees par quantité"),
-        Encounter("Plantosaure",1,150,15,"Ils ne vous échapperont pas.","20 Jumping Jacks")
-    )
-    val base = table[(roll - 7).coerceIn(0, table.lastIndex)]
-    val quantity = Random.nextInt(1,7)
-    val context = listOf("Vous êtes piégé !","Une embuscade !","Ils arrivent !","Ils ne vous échapperont pas.","Ils sont à votre merci.","Ils n'ont rien vu.")[Random.nextInt(6)]
-    val exercise = when(Random.nextInt(6)) { 0 -> "10 Burpees par quantité"; 2 -> "50 Jumping Jacks"; 3 -> "20 Jumping Jacks"; else -> "Aucun exercice imposé" }
-    return base.copy(quantity = quantity, context = context, exercise = exercise)
+private fun generateEncounter(): Encounter? {
+    val roll = (1..7).sumOf { Random.nextInt(1, 7) }
+    val rule = encounterRules[roll - 7]
+    // Campagne actuelle : Fitland. Les rencontres d'autres régions sont ignorées.
+    if (!(rule.zones == "Toutes" || rule.zones.contains("Fitland")) || rule.zones == "Toutes sauf Fitland") return null
+    val quantity = if (rule.effect.contains("Quantité fixe", ignoreCase = true) || rule.effect.contains("quantité fixe", ignoreCase = true)) 1 else Random.nextInt(1, 7) * if (roll == 7) 10 else 1
+    val contextRoll = (Random.nextInt(1, 7) + if (roll == 15) 2 else 0).coerceAtMost(6)
+    val contexts = listOf("Vous êtes piégé !", "Une embuscade !", "Ils arrivent !", "Ils ne vous échapperont pas.", "Ils sont à votre merci.", "Ils n'ont rien vu.")
+    val effects = listOf("10 burpees par adversaire", "Durée d'utilisation des objets ×2", "50 jumping jacks", "20 jumping jacks", "Aucun exercice", "Rencontre évitable")
+    val safe = rule.effect.startsWith("Inoffensif")
+    return Encounter(rule.name, quantity, rule.hp, rule.reward * quantity, contexts[contextRoll - 1], effects[contextRoll - 1], roll, rule.hp * quantity, rule.effect, safe)
 }
 
+private fun resolve(s: AppState, damage: Int): AppState = s.lastEncounter?.let { e ->
+    val remaining = (e.remainingHp - damage.coerceAtLeast(0)).coerceAtLeast(0)
+    if (remaining > 0) s.copy(lastEncounter = e.copy(remainingHp = remaining), log = (listOf("${e.name} : $damage dégâts, $remaining PV restants") + s.log).take(100))
+    else s.copy(character = s.character.copy(po = s.character.po + e.reward), lastEncounter = null,
+        log = (listOf("${e.name} vaincu(s), butin : ${e.reward} PO") + s.log).take(100))
+} ?: s
+
+private fun skipEncounter(s: AppState): AppState = s.lastEncounter?.let { e ->
+    s.copy(lastEncounter = null, log = (listOf("Rencontre terminée sans victoire : ${e.name}. En cas de fuite, retour à la zone de départ à effectuer.") + s.log).take(100))
+} ?: s
 
 // Sauvegarde locale, sans compte ni connexion. Compatible avec les données de la v0.1.
 private fun saveState(context: Context, state: AppState) {
@@ -563,6 +623,7 @@ private fun saveState(context: Context, state: AppState) {
         state.lastEncounter?.let { e -> put("lastEncounter", JSONObject().apply {
             put("name", e.name); put("quantity", e.quantity); put("hp", e.hp)
             put("reward", e.reward); put("context", e.context); put("exercise", e.exercise)
+            put("roll", e.roll); put("remainingHp", e.remainingHp); put("effect", e.effect); put("safe", e.safe)
         }) }
     }
     context.getSharedPreferences("dof_save", Context.MODE_PRIVATE).edit()
@@ -614,7 +675,9 @@ private fun loadState(context: Context): AppState {
         val ej = obj.optJSONObject("lastEncounter")
         val encounter = ej?.let {
             Encounter(it.optString("name"), it.optInt("quantity"), it.optInt("hp"),
-                it.optInt("reward"), it.optString("context"), it.optString("exercise"))
+                it.optInt("reward"), it.optString("context"), it.optString("exercise"),
+                it.optInt("roll", 0), it.optInt("remainingHp", it.optInt("hp") * it.optInt("quantity")),
+                it.optString("effect", ""), it.optBoolean("safe", false))
         }
         val baseState = AppState()
         baseState.copy(character = if (c.profileType == "advanced" && c.className in classAchievements) c.copy(unlockedClasses = (c.unlockedClasses + c.className).distinct()) else c,

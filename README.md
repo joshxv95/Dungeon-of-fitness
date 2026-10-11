@@ -49,3 +49,11 @@ Décompresser et transférer le contenu du dossier `dungeon-fitness-app` à la r
 - Validation de l'arrivée et mise à jour de la position.
 - Sauvegardes v0.9 compatibles, accomplissements préservés.
 - LIMITES : rencontres encore fictives/provisoires ; pas de calcul automatique d'itinéraire, ni de pouvoirs de déplacement des classes.
+
+## v1.1.0 — Rencontres officielles
+- 7D6, table 7–42 p. 43 ; quantité 1D6 et contexte 1D6 p. 42.
+- Filtrage des rencontres non accessibles en Fitland.
+- Points de vie cumulés, dégâts manuels, récompense seulement après victoire.
+- Effets immédiats affichés, à appliquer manuellement ; rencontres inoffensives séparées.
+- Sauvegarde de la rencontre en cours et des PV restants.
+- Les pouvoirs de classe, objets, fuite et effets persistants ne sont pas encore automatisés.
