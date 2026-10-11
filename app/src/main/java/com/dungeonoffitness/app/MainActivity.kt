@@ -215,10 +215,13 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
     val classes = mapOf("Course / randonnée / natation" to "Éclaireur", "Cyclisme / skate" to "Cavalier",
         "Musculation / force" to "Moine", "Sports de balle" to "Chasseur", "Sports de combat" to "Guerrier",
         "Yoga / Pilates" to "Mage", "Danse" to "Barde", "Escalade / gymnastique" to "Acrobate")
+    val nextClass = classes[activity] ?: "Non déterminée"
     return c.copy(profileType = "advanced", force = force, endurance = endurance, agility = agility,
         dexterity = dexterity, mental = mental, divinity = divinity, level = level,
-        className = classes[activity] ?: "Non déterminée", primaryActivity = activity,
-        specialAbility = special, unlockedClasses = (c.unlockedClasses + listOfNotNull(classes[activity])).distinct(), strengthPercent = strength, enduranceHours = hours,
+        className = nextClass, primaryActivity = activity,
+        specialAbility = special,
+        unlockedClasses = (c.unlockedClasses + listOfNotNull(classes[activity])).distinct(),
+        completedAchievements = c.completedAchievements, strengthPercent = strength, enduranceHours = hours,
         enduranceDistance = distance, agilityMoves = moves, dexterityPercent = precision,
         dexteritySeconds = seconds, mentalDifficulty = difficulty, mentalBonus = bonus)
 }
@@ -270,12 +273,12 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         if (c.profileType == "advanced") {
             item { HorizontalDivider() }
             item { Text("Classes et accomplissements", style = MaterialTheme.typography.titleMedium) }
-            item { Text("Validation manuelle : coche uniquement les accomplissements réalisés. Aucun bonus n'est accordé automatiquement.", style = MaterialTheme.typography.bodySmall) }
-            val available = (c.unlockedClasses + c.className).filter { it in classAchievements }.distinct()
-            available.forEach { className ->
-                item { Text(className, style = MaterialTheme.typography.titleSmall) }
-                classAchievements[className].orEmpty().forEach { achievement ->
-                    val key = "$className::$achievement"
+            item { Text("La classe actuelle affiche tous ses accomplissements. Les anciennes classes n’affichent que ceux déjà validés. Les validations sont conservées lors des changements de classe.", style = MaterialTheme.typography.bodySmall) }
+            val activeClass = c.className
+            if (activeClass in classAchievements) {
+                item { Text("Classe actuelle : $activeClass", style = MaterialTheme.typography.titleSmall) }
+                classAchievements[activeClass].orEmpty().forEach { achievement ->
+                    val key = "$activeClass::$achievement"
                     item {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(checked = key in c.completedAchievements, onCheckedChange = { checked ->
@@ -283,6 +286,29 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
                                 onUpdate(c.copy(completedAchievements = updated))
                             })
                             Text(achievement)
+                        }
+                    }
+                }
+            }
+            val pastClasses = c.completedAchievements.mapNotNull { key ->
+                val className = key.substringBefore("::", "")
+                className.takeIf { it != activeClass && it in classAchievements }
+            }.distinct()
+            if (pastClasses.isNotEmpty()) {
+                item { Text("Accomplissements acquis dans d’autres classes", style = MaterialTheme.typography.titleMedium) }
+                pastClasses.forEach { className ->
+                    item { Text(className, style = MaterialTheme.typography.titleSmall) }
+                    classAchievements[className].orEmpty().forEach { achievement ->
+                        val key = "$className::$achievement"
+                        if (key in c.completedAchievements) {
+                            item {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(checked = true, onCheckedChange = { checked ->
+                                        if (!checked) onUpdate(c.copy(completedAchievements = c.completedAchievements - key))
+                                    })
+                                    Text(achievement)
+                                }
+                            }
                         }
                     }
                 }
@@ -347,7 +373,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun ApplicationInfo() {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Dungeon of Fitness · Version 0.7.0", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Dungeon of Fitness · Version 0.9.0", style = MaterialTheme.typography.titleLarge) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
@@ -357,9 +383,17 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             "Calcul des caractéristiques et du niveau",
             "Réinitialisation complète avec confirmation",
             "Classes et historique des classes débloquées",
-            "Accomplissements : validation manuelle sauvegardée",
+            "Accomplissements conservés lors du changement de classe",
+            "Accomplissements non validés des anciennes classes masqués",
+            "Carnet des lieux de Fitland (aperçu sans distances inventées)",
             "Fiche : statistiques et accomplissements en haut"
         ).forEach { feature -> item { Text("✓ $feature") } }
+        item { HorizontalDivider() }
+        item { Text("Carnet des lieux de Fitland", style = MaterialTheme.typography.titleMedium) }
+        item { Text("Aperçu des lieux du livre. La carte interactive et les trajets officiels restent à intégrer.") }
+        listOf("Fontaria", "Entrepôts Shaker+", "Tique-Couenne", "Nosferathon", "Omega Beach", "Garde Froide", "Litière Ville", "Mont Stepper").forEach { place ->
+            item { Text("• $place") }
+        }
         item { HorizontalDivider() }
         item { Text("En développement", style = MaterialTheme.typography.titleMedium) }
         listOf(

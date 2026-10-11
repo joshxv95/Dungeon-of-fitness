@@ -26,4 +26,17 @@ Décompresser et transférer le contenu du dossier `dungeon-fitness-app` à la r
 - Conservation des classes débloquées lors des changements de discipline.
 - Résumé des caractéristiques, classes et accomplissements placé avant les formulaires.
 - Onglet Application : numéro de version, fonctionnalités présentes et fonctionnalités à venir.
-- Compatibilité avec les sauvegardes précédentes.\n
+- Compatibilité avec les sauvegardes précédentes.\n\n## v0.8.0
+- Affiche seulement les accomplissements de la classe actuelle.
+- Au changement effectif de classe lors de l'enregistrement du profil avancé, les validations sont effacées.
+- L'historique des classes découvertes est conservé ; pas de perte de sauvegarde.
+- Carnet de lieux dans l'onglet Application : aperçu non interactif sans distances inventées.
+- Version affichée : 0.8.0.
+
+## v0.9.0 — fidélité des accomplissements
+- Les accomplissements validés persistent lors des changements de classe.
+- Les trois accomplissements de la classe active restent affichés.
+- Seuls les accomplissements validés des anciennes classes sont affichés, regroupés par classe.
+- Possibilité de décocher une validation, y compris dans une ancienne classe.
+- Les données déjà effacées par la version 0.8 ne peuvent pas être restaurées automatiquement.
+- Numéro de version Android corrigé : 0.9.0.
