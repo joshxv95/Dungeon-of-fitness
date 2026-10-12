@@ -118,3 +118,12 @@ Décompresser et transférer le contenu du dossier `dungeon-fitness-app` à la r
 
 ## v1.13 — ciblage des armes à distance
 Les armes marquées à distance ciblent un adversaire vivant choisi par le joueur, sans transfert de dégâts. Convention maison, distincte du livre. Les armes ordinaires conservent la répartition automatique.
+
+## v1.15.0 — Sac catégorisé et fuite
+- Onglets Armes, Soutien, Améliorations, Consommables avec inventaire filtré et quantités regroupées.
+- Évitement sans pénalité uniquement en contexte 6, ou fin de rencontre pacifique.
+- Fuite distincte : confirmation des exercices de contexte, retour mesuré au point de départ du trajet, sans rencontre ni butin.
+- Le trajet de fuite ne progresse pas dans le compteur des rencontres.
+- Capacité de classe affichée si renseignée ; automatisation future.
+- Limites : les effets immédiats des monstres et la fuite spéciale de l'Acrobate restent manuels ; le trajet de retour utilise la distance déjà parcourue du trajet en cours.
+- Les effets des statistiques sur le combat seront étudiés à la fin du développement comme règles maison, non ajoutés ici.

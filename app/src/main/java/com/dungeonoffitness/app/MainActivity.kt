@@ -7,6 +7,8 @@ import org.json.JSONArray
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -136,6 +138,8 @@ private data class AppState(
     val vigorActive: Boolean = false,
     val quantumMode: String = "",
     val illusionActive: Boolean = false,
+    val retreatActive: Boolean = false,
+    val retreatOrigin: String = "",
     val quests: List<String> = listOf("Créer et suivre votre profil", "Tenir votre journal d'entraînement")
 )
 
@@ -182,6 +186,7 @@ fun DungeonApp() {
                                 }
                         },
                         onSkip = { update(skipEncounter(state)) },
+                        onFlee = { update(fleeEncounter(state)) },
                         onMeditate = {
                             val e = state.lastEncounter
                             if (e != null && !e.safe && "Manuel de méditation" in state.inventory && !state.meditationActive)
@@ -235,7 +240,7 @@ fun DungeonApp() {
                         },
                         onArrive = {
                             update(state.copy(character = state.character.copy(location = state.destination),
-                                destination = "", destinationKm = 0.0, distance = 0.0,
+                                destination = "", destinationKm = 0.0, distance = 0.0, retreatActive = false, retreatOrigin = "",
                                 log = (listOf("Arrivée à ${state.destination}.") + state.log).take(100)))
                         })
                     "character" -> CharacterScreen(state.character, onUpdate = { candidate ->
@@ -344,6 +349,7 @@ private val fitlandPlaces = listOf(
     onResolve: (Int) -> Unit,
     onWeaponAttack: (String, Int, Boolean, Int?, Boolean) -> Unit,
     onSkip: () -> Unit,
+    onFlee: () -> Unit,
     onMeditate: () -> Unit,
     onUsePersuasion: () -> Unit,
     onUseConsumable: (String, String) -> Unit,
@@ -365,6 +371,9 @@ private val fitlandPlaces = listOf(
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Expédition", style = MaterialTheme.typography.headlineSmall) }
         item { Text("Position actuelle : ${state.character.location}") }
+        item { Text("Classe : ${state.character.className} · Niveau ${state.character.level}") }
+        if (state.character.specialAbility.isNotBlank()) item { Text("Capacité de classe : ${state.character.specialAbility} (application manuelle tant que non automatisée)", style = MaterialTheme.typography.bodySmall) }
+        if (state.retreatActive) item { Text("RETOUR DE FUITE : rejoignez ${state.retreatOrigin}. Aucune nouvelle rencontre pendant ce trajet.", color = MaterialTheme.colorScheme.error) }
         item { Text("Selon le livre (p. 41), les trajets sont réalisés réellement à pied, à vélo ou par un autre moyen non motorisé. Pour un novice : 1 km de carte = 1 minute d'endurance.") }
         if (state.destinationKm <= 0.0) {
             item { Text("Préparer un trajet", style = MaterialTheme.typography.titleMedium) }
@@ -543,10 +552,29 @@ private val fitlandPlaces = listOf(
                         onClick = { onResolve(damageInput.toInt()); damageInput = "" },
                         modifier = Modifier.fillMaxWidth()) { Text("Enregistrer les dégâts") }
                 }
-                OutlinedButton(onClick = onSkip, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (e.safe) "Terminer la rencontre pacifique" else "Fuir / abandonner (retour manuel requis)")
+                if (e.safe || e.context == "Ils n'ont rien vu.") {
+                    OutlinedButton(onClick = onSkip, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (e.safe) "Terminer la rencontre pacifique" else "Éviter la rencontre — sans fuite")
+                    }
                 }
-                Text("Les exercices et effets immédiats doivent être réalisés manuellement. En cas de fuite, applique le retour vers la zone de départ prévu p. 42.", style = MaterialTheme.typography.bodySmall)
+                if (!e.safe) {
+                    var fleeExercisesConfirmed by remember(e.name, e.roll, e.contextDie) { mutableStateOf(false) }
+                    val mandatory = when (e.context) {
+                        "Vous êtes piégé !" -> "${10 * e.quantity} burpees"
+                        "Ils arrivent !" -> "50 jumping jacks"
+                        "Ils ne vous échapperont pas." -> "20 jumping jacks"
+                        else -> "Aucun exercice de contexte supplémentaire"
+                    }
+                    Text("Fuite : $mandatory. Retour obligatoire vers le point de départ du trajet, sans nouvelle rencontre ni butin.")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = fleeExercisesConfirmed, onCheckedChange = { fleeExercisesConfirmed = it })
+                        Text("J'ai effectué les exercices de contexte requis")
+                    }
+                    OutlinedButton(enabled = fleeExercisesConfirmed && !state.retreatActive, onClick = onFlee, modifier = Modifier.fillMaxWidth()) {
+                        Text("Fuir — lancer le trajet de retour")
+                    }
+                }
+                Text("Les effets immédiats des monstres restent à appliquer manuellement. La fuite retourne au départ du trajet en cours ; capacité spéciale de l'Acrobate non automatisée.", style = MaterialTheme.typography.bodySmall)
             } } }
         }
         item { Text("Journal", style = MaterialTheme.typography.titleMedium) }
@@ -758,7 +786,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun ApplicationInfo() {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Dungeon of Fitness · Version 1.14.0", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Dungeon of Fitness · Version 1.15.0", style = MaterialTheme.typography.titleLarge) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
@@ -800,6 +828,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 }
 
 @Composable private fun Inventory(state: AppState, onEquip: (String) -> Unit, onBuy: (Weapon) -> Unit, onUpgradeBuy: (CombatUpgrade) -> Unit, onSupportBuy: (Support) -> Unit, onEquipSupport: (String) -> Unit, onConsumableBuy: (String) -> Unit, onTestGold: (Int) -> Unit) {
+    var bagTab by remember { mutableStateOf("Armes") }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Text("Sac et armurerie", style = MaterialTheme.typography.headlineSmall) }
         item { Text("Bourse : ${state.character.po} PO") }
@@ -811,6 +840,25 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
                 OutlinedButton(onClick = { onTestGold(1000) }) { Text("+1 000 PO") }
             }
         } } }
+        item { androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            listOf("Armes", "Soutien", "Améliorations", "Consommables").forEach { category ->
+                androidx.compose.material3.TextButton(onClick = { bagTab = category }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp)) {
+                    Text(if (bagTab == category) "●$category" else category, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        } }
+        item { Text("Équipement possédé dans cette catégorie", style = MaterialTheme.typography.titleMedium) }
+        val owned = state.inventory.filter { name -> when(bagTab) {
+            "Armes" -> weapons.any { it.name == name }
+            "Soutien" -> supports.any { it.name == name }
+            "Améliorations" -> combatUpgrades.any { it.name == name }
+            else -> name.startsWith("Shaker ")
+        } }
+        if (owned.isEmpty()) item { Text("Aucun objet dans cette catégorie.") }
+        items(owned.groupingBy { it }.eachCount().toList().sortedBy { it.first }) { (name, quantity) ->
+            Text("◆ $name${if (quantity > 1) " x$quantity" else ""}")
+        }
+        if (bagTab == "Armes") {
         item { Text("Arme active pour les prochains jets de rencontre", style = MaterialTheme.typography.titleMedium) }
         item { Text(if (state.equippedWeapon.isBlank()) "Aucune arme active" else "Active : ${state.equippedWeapon}") }
         item { OutlinedButton(onClick = { onEquip("") }) { Text("Aucune arme active") } }
@@ -820,6 +868,8 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             }
         }
         item { Text("L'arme doit être sélectionnée AVANT le tirage : changer d'arme ne modifie pas rétroactivement une rencontre en cours.", style = MaterialTheme.typography.bodySmall) }
+        }
+        if (bagTab == "Soutien") {
         item { Text("Soutien actif (avant le jet de contexte)", style = MaterialTheme.typography.titleMedium) }
         item { Text("${if (state.equippedSupport.isBlank()) "Aucun" else state.equippedSupport} — un seul soutien actif à la fois. Pour obtenir ses dégâts, réaliser et confirmer son exercice à chaque attaque.", style = MaterialTheme.typography.bodySmall) }
         item { OutlinedButton(onClick = { onEquipSupport("") }) { Text("Retirer le soutien") } }
@@ -827,11 +877,6 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             OutlinedButton(onClick = { onEquipSupport(u.name) }, modifier = Modifier.fillMaxWidth()) {
                 Text("${if (state.equippedSupport == u.name) "●" else "○"} ${u.name} (+${u.bonus} PV${if (u.context > 0) ", contexte +${u.context}" else ""})")
             }
-        }
-        item { Text("Équipement possédé", style = MaterialTheme.typography.titleMedium) }
-        if (state.inventory.isEmpty()) item { Text("Aucun objet acheté.") }
-        items(state.inventory.groupingBy { it }.eachCount().toList().sortedBy { it.first }) { (name, quantity) ->
-            Text("◆ $name${if (quantity > 1) " x$quantity" else ""}")
         }
         item { HorizontalDivider() }
         item { Text("Boucliers et équipements de soutien", style = MaterialTheme.typography.titleMedium) }
@@ -846,6 +891,8 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
                 }
             } }
         }
+        }
+        if (bagTab == "Améliorations") {
         item { Text("Améliorations de combat", style = MaterialTheme.typography.titleMedium) }
         item { Text("Bonus fixes appliqués une fois par attaque, et non à chaque répétition. Les Pattes d’ours nécessitent de confirmer le comptage oral.", style = MaterialTheme.typography.bodySmall) }
         items(combatUpgrades) { u ->
@@ -856,6 +903,8 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
                     onClick = { onUpgradeBuy(u) }) { Text(if (u.name in state.inventory) "Déjà possédé" else "Acheter (${u.price} PO)") }
             } }
         }
+        }
+        if (bagTab == "Consommables") {
         item { HorizontalDivider() }
         item { Text("Consommables", style = MaterialTheme.typography.titleMedium) }
         val consumables = listOf(
@@ -873,6 +922,8 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
                 Button(enabled = state.character.po >= 100, onClick = { onConsumableBuy(name) }) { Text("Acheter (100 PO)") }
             } }
         }
+        }
+        if (bagTab == "Armes") {
         item { Text("Catalogue — armes et exercices du livre", style = MaterialTheme.typography.titleMedium) }
         item { Text("21 armes et exercices, d’après le Guide touristique p. 163–175.", style = MaterialTheme.typography.bodySmall) }
         item { Text("Achat irréversible : le livre interdit la revente. Les règles de dotation initiale (10 PO par niveau à dépenser intégralement) ne sont pas encore automatisées.", style = MaterialTheme.typography.bodySmall) }
@@ -887,6 +938,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
                     onClick = { onBuy(w) }) { Text(if (w.name in state.inventory) "Déjà possédé" else "Acheter (${w.price} PO)") }
             } }
         }
+        }
     }
 }
 
@@ -897,13 +949,13 @@ private fun travel(s: AppState, km: Double): AppState {
     val newDistance = (old + km).coerceAtMost(s.destinationKm)
     val oldChecks = kotlin.math.floor(s.totalTravelKm / 6.0).toInt()
     val actualProgress = newDistance - old
-    val newTotal = s.totalTravelKm + actualProgress
+    val newTotal = s.totalTravelKm + if (s.retreatActive) 0.0 else actualProgress
     val newChecks = kotlin.math.floor(newTotal / 6.0).toInt()
-    val encounter = if (newChecks > oldChecks) generateEncounter(s.equippedWeapon, s.equippedSupport) else s.lastEncounter
-    val logs = if (encounter != null && newChecks > oldChecks) listOf("Rencontre : ${encounter.name} ×${encounter.quantity}") + s.log else listOf("+${"%.1f".format(km)} km parcouru") + s.log
+    val encounter = if (!s.retreatActive && newChecks > oldChecks) generateEncounter(s.equippedWeapon, s.equippedSupport) else s.lastEncounter
+    val logs = if (encounter != null && !s.retreatActive && newChecks > oldChecks) listOf("Rencontre : ${encounter.name} ×${encounter.quantity}") + s.log else listOf("+${"%.1f".format(km)} km parcouru") + s.log
     return s.copy(distance = newDistance, totalTravelKm = newTotal, lastEncounter = encounter, meditationActive = if (newChecks > oldChecks) false else s.meditationActive,
         vigorActive = if (newChecks > oldChecks) false else s.vigorActive,
-        quantumMode = if (newChecks > oldChecks) "" else s.quantumMode, encounters = s.encounters + if (newChecks > oldChecks) 1 else 0, log = logs.take(100))
+        quantumMode = if (newChecks > oldChecks) "" else s.quantumMode, encounters = s.encounters + if (!s.retreatActive && newChecks > oldChecks) 1 else 0, log = logs.take(100))
 }
 
 private data class EncounterRule(val name: String, val reward: Int, val hp: Int, val zones: String, val effect: String)
@@ -1010,7 +1062,18 @@ private fun removeOne(items: List<String>, name: String): List<String> {
 }
 
 private fun skipEncounter(s: AppState): AppState = s.lastEncounter?.let { e ->
-    s.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, log = (listOf("Rencontre terminée sans victoire : ${e.name}. En cas de fuite, retour à la zone de départ à effectuer.") + s.log).take(100))
+    if (!e.safe && e.context != "Ils n'ont rien vu.") return@let s
+    s.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, log = (listOf("Rencontre évitée ou pacifique : ${e.name}. Aucun butin ni retour obligatoire.") + s.log).take(100))
+} ?: s
+
+private fun fleeEncounter(s: AppState): AppState = s.lastEncounter?.let { e ->
+    if (e.safe || s.retreatActive) return@let s
+    val returnDistance = s.distance.coerceAtLeast(0.0)
+    val start = s.character.location
+    s.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false,
+        retreatActive = returnDistance > 0.0, retreatOrigin = start,
+        destination = if (returnDistance > 0.0) start else "", destinationKm = returnDistance, distance = 0.0,
+        log = (listOf("Fuite devant ${e.name} : retour de ${"%.1f".format(returnDistance)} unité(s) vers $start, sans rencontre et sans butin. Exercices de contexte confirmés.") + s.log).take(100))
 } ?: s
 
 // Sauvegarde locale, sans compte ni connexion. Compatible avec les données de la v0.1.
@@ -1033,10 +1096,10 @@ private fun saveState(context: Context, state: AppState) {
         put("unlockedClasses", JSONArray(c.unlockedClasses)); put("completedAchievements", JSONArray(c.completedAchievements))
     }
     val obj = JSONObject().apply {
-        put("schema", 10); put("character", character); put("distance", state.distance)
+        put("schema", 15); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("totalTravelKm", state.totalTravelKm)
-        put("encounters", state.encounters)
+        put("encounters", state.encounters); put("retreatActive", state.retreatActive); put("retreatOrigin", state.retreatOrigin)
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
         put("equippedWeapon", state.equippedWeapon); put("equippedSupport", state.equippedSupport); put("meditationActive", state.meditationActive)
         put("vigorActive", state.vigorActive); put("quantumMode", state.quantumMode); put("illusionActive", state.illusionActive)
@@ -1113,6 +1176,7 @@ private fun loadState(context: Context): AppState {
             destinationKm = obj.optDouble("destinationKm", baseState.destinationKm),
             totalTravelKm = obj.optDouble("totalTravelKm", obj.optDouble("distance", 0.0)),
             encounters = obj.optInt("encounters", 0), lastEncounter = encounter,
+            retreatActive = obj.optBoolean("retreatActive", false), retreatOrigin = obj.optString("retreatOrigin", ""),
             equippedWeapon = obj.optString("equippedWeapon", ""), equippedSupport = obj.optString("equippedSupport", ""), meditationActive = obj.optBoolean("meditationActive", false),
             vigorActive = obj.optBoolean("vigorActive", false), quantumMode = obj.optString("quantumMode", ""), illusionActive = obj.optBoolean("illusionActive", false),
             log = strings("log", baseState.log), inventory = strings("inventory", baseState.inventory),
