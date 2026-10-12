@@ -89,6 +89,18 @@ private val weapons = listOf(
     Weapon("Tapis de mage de guerre", 500, 300, "1 exécution", "Enchaîner Warrior I, II et III, 10 secondes chacune, sans interruption", ranged = true)
 )
 
+// Equipements de soutien : Guide touristique, pages 165-166.
+// Un seul soutien actif ; bonus d'attaque conditionné à l'exercice confirmé.
+private data class Support(val name: String, val price: Int, val bonus: Int, val context: Int, val exercise: String)
+private val supports = listOf(
+    Support("Bottes de Tasmina", 200, 50, 1, "1 High Jump : sauter aussi haut que possible"),
+    Support("Bouclier de bois", 50, 10, 1, "1 Lunge : fente, genou à 90°"),
+    Support("Bouclier de fonte", 100, 25, 1, "1 Jumping Lunge : fente sautée alternée"),
+    Support("Bouclier lourd", 200, 100, 2, "1 Pistol Squat : squat sur une jambe"),
+    Support("Bracelets lestés", 50, 10, 0, "Lester les poignets pour l'attaque"),
+    Support("Casque de Tasmina", 200, 50, 0, "1 Side Lunge : fente latérale")
+)
+
 // Objets d'amélioration : catalogue officiel, pages 170-171.
 private data class CombatUpgrade(val name: String, val price: Int, val bonus: Int, val description: String)
 private val combatUpgrades = listOf(
@@ -98,11 +110,11 @@ private val combatUpgrades = listOf(
     CombatUpgrade("Manuel de méditation", 1000, 100, "Méditer 60 secondes par adversaire pour +100 PV sur chacune des attaques du combat.")
 )
 // Le bonus fixe est ajouté une fois à chaque attaque déclarée, pas à chaque répétition.
-private fun attackDamage(weapon: Weapon, count: Int, inventory: List<String>, pattesUsed: Boolean, meditationActive: Boolean = false, vigorActive: Boolean = false): Int {
+private fun attackDamage(weapon: Weapon, count: Int, inventory: List<String>, pattesUsed: Boolean, meditationActive: Boolean = false, vigorActive: Boolean = false, supportBonus: Int = 0): Int {
     val bonus = (if ("Manuel de bottes de Maître" in inventory) 100 else 0) +
         (if ("Manuel de combat à mains nues" in inventory && weapon.name.startsWith("Gants")) 50 else 0) +
         (if (pattesUsed && "Pattes d’ours" in inventory) 50 else 0) +
-        (if (meditationActive && "Manuel de méditation" in inventory) 100 else 0)
+        (if (meditationActive && "Manuel de méditation" in inventory) 100 else 0) + supportBonus
     return ((weapon.damage.toLong() * count + bonus) * (if (vigorActive) 2L else 1L)).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 }
 
@@ -119,6 +131,7 @@ private data class AppState(
     val log: List<String> = listOf("Le voyage commence. Le Disque-Fonte vous attend."),
     val inventory: List<String> = emptyList(),
     val equippedWeapon: String = "",
+    val equippedSupport: String = "",
     val meditationActive: Boolean = false,
     val vigorActive: Boolean = false,
     val quantumMode: String = "",
@@ -152,11 +165,12 @@ fun DungeonApp() {
                     "adventure" -> Adventure(state,
                         onTravel = { km -> update(travel(state, km)) },
                         onResolve = { damage -> update(resolve(state, damage)) },
-                        onWeaponAttack = { name, count, pattesUsed, target ->
+                        onWeaponAttack = { name, count, pattesUsed, target, supportConfirmed ->
                             val weapon = weapons.firstOrNull { it.name == name }
                             if (weapon != null && name in state.inventory && count > 0)
                                 {
-                                    val damage = attackDamage(weapon, count, state.inventory, pattesUsed, state.meditationActive, state.vigorActive)
+                                    val support = supports.firstOrNull { it.name == state.equippedSupport && it.name in state.inventory }
+                                    val damage = attackDamage(weapon, count, state.inventory, pattesUsed, state.meditationActive, state.vigorActive, if (supportConfirmed) support?.bonus ?: 0 else 0)
                                     val e = state.lastEncounter
                                     if (weapon.ranged && e != null) {
                                         val hp = encounterHp(e)
@@ -254,6 +268,12 @@ fun DungeonApp() {
                             update(state.copy(character = state.character.copy(po = state.character.po - 100),
                                 inventory = state.inventory + name,
                                 log = (listOf("Achat : $name (100 PO)") + state.log).take(100)))
+                    }, onSupportBuy = { support ->
+                        if (state.character.po >= support.price && support.name !in state.inventory)
+                            update(state.copy(character = state.character.copy(po = state.character.po - support.price),
+                                inventory = state.inventory + support.name, log = (listOf("Achat : ${support.name} (${support.price} PO)") + state.log).take(100)))
+                    }, onEquipSupport = { name ->
+                        if (name.isEmpty() || (name in state.inventory && supports.any { it.name == name })) update(state.copy(equippedSupport = name))
                     }, onUpgradeBuy = { upgrade ->
                         if (state.character.po >= upgrade.price && upgrade.name !in state.inventory)
                             update(state.copy(character = state.character.copy(po = state.character.po - upgrade.price),
@@ -322,7 +342,7 @@ private val fitlandPlaces = listOf(
     state: AppState,
     onTravel: (Double) -> Unit,
     onResolve: (Int) -> Unit,
-    onWeaponAttack: (String, Int, Boolean, Int?) -> Unit,
+    onWeaponAttack: (String, Int, Boolean, Int?, Boolean) -> Unit,
     onSkip: () -> Unit,
     onMeditate: () -> Unit,
     onUsePersuasion: () -> Unit,
@@ -338,6 +358,7 @@ private val fitlandPlaces = listOf(
     var rangedTarget by remember { mutableIntStateOf(-1) }
     var attackCount by remember { mutableStateOf("1") }
     var pattesUsed by remember { mutableStateOf(false) }
+    var supportConfirmed by remember { mutableStateOf(false) }
     val novice = state.character.profileType == "novice"
     val unit = if (novice) "min" else "km"
     val pending = state.lastEncounter != null
@@ -398,7 +419,7 @@ private val fitlandPlaces = listOf(
                 }
                 if (e.contextDie > 0) {
                     Text("Dé de contexte : ${e.contextDie} + ${e.contextBonus} = ${(e.contextDie + e.contextBonus).coerceAtMost(6)}")
-                    if (e.contextWeapon.isNotBlank()) Text("Bonus d’équipement : ${e.contextWeapon} (+${weapons.firstOrNull { it.name == e.contextWeapon }?.contextBonus ?: 0})")
+                    if (e.contextWeapon.isNotBlank()) Text("Équipement actif au tirage : ${e.contextWeapon}")
                     if (e.effect.contains("Contexte +2")) Text("Effet Trollympien : +2 au contexte")
                 } else Text("Rencontre enregistrée avant v1.3 : jet de contexte initial indisponible.")
                 Text("Contexte : ${e.context}")
@@ -488,8 +509,16 @@ private val fitlandPlaces = listOf(
                                     Text("J'ai compté à voix haute (+50 PV pour cette attaque)")
                                 }
                             }
+                            val activeSupport = supports.firstOrNull { it.name == state.equippedSupport && it.name in state.inventory }
+                            if (activeSupport != null) {
+                                Text("Soutien : ${activeSupport.name} — ${activeSupport.exercise}")
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(checked = supportConfirmed, onCheckedChange = { supportConfirmed = it })
+                                    Text("Exercice de soutien réalisé (+${activeSupport.bonus} PV sur cette attaque)")
+                                }
+                            }
                             val n = (attackCount.toIntOrNull() ?: 0).coerceIn(0, 1000)
-                            val damagePreview = if (n > 0) attackDamage(w, n, state.inventory, pattesUsed, state.meditationActive, state.vigorActive) else 0
+                            val damagePreview = if (n > 0) attackDamage(w, n, state.inventory, pattesUsed, state.meditationActive, state.vigorActive, if (supportConfirmed) activeSupport?.bonus ?: 0 else 0) else 0
                             if (baseSeconds != null && n > 0) {
                                 val ambushFactor = if (e.context == "Une embuscade !") 2 else 1
                                 val effective = when (state.quantumMode) {
@@ -502,7 +531,7 @@ private val fitlandPlaces = listOf(
                             if (w.ranged && rangedTarget in encounterHp(e).indices && encounterHp(e)[rangedTarget] > 0 && n > 0)
                                 Text("Dégâts effectifs sur cette cible : ${minOf(damagePreview, encounterHp(e)[rangedTarget])} PV ; surplus perdu.")
                             Button(enabled = n in 1..1000 && (!w.ranged || (rangedTarget in encounterHp(e).indices && encounterHp(e)[rangedTarget] > 0)),
-                                onClick = { onWeaponAttack(w.name, n, pattesUsed, if (w.ranged) rangedTarget else null); attackCount = "1"; pattesUsed = false },
+                                onClick = { onWeaponAttack(w.name, n, pattesUsed, if (w.ranged) rangedTarget else null, supportConfirmed); attackCount = "1"; pattesUsed = false; supportConfirmed = false },
                                 modifier = Modifier.fillMaxWidth()) { Text("Exercice réalisé — infliger $damagePreview PV") }
                         }
                     } else Text("Aucune arme achetée : consulte le Sac pour t'équiper.")
@@ -729,7 +758,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun ApplicationInfo() {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Dungeon of Fitness · Version 1.13.0", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Dungeon of Fitness · Version 1.14.0", style = MaterialTheme.typography.titleLarge) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
@@ -770,7 +799,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
     }
 }
 
-@Composable private fun Inventory(state: AppState, onEquip: (String) -> Unit, onBuy: (Weapon) -> Unit, onUpgradeBuy: (CombatUpgrade) -> Unit, onConsumableBuy: (String) -> Unit, onTestGold: (Int) -> Unit) {
+@Composable private fun Inventory(state: AppState, onEquip: (String) -> Unit, onBuy: (Weapon) -> Unit, onUpgradeBuy: (CombatUpgrade) -> Unit, onSupportBuy: (Support) -> Unit, onEquipSupport: (String) -> Unit, onConsumableBuy: (String) -> Unit, onTestGold: (Int) -> Unit) {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Text("Sac et armurerie", style = MaterialTheme.typography.headlineSmall) }
         item { Text("Bourse : ${state.character.po} PO") }
@@ -791,12 +820,32 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             }
         }
         item { Text("L'arme doit être sélectionnée AVANT le tirage : changer d'arme ne modifie pas rétroactivement une rencontre en cours.", style = MaterialTheme.typography.bodySmall) }
+        item { Text("Soutien actif (avant le jet de contexte)", style = MaterialTheme.typography.titleMedium) }
+        item { Text("${if (state.equippedSupport.isBlank()) "Aucun" else state.equippedSupport} — un seul soutien actif à la fois. Pour obtenir ses dégâts, réaliser et confirmer son exercice à chaque attaque.", style = MaterialTheme.typography.bodySmall) }
+        item { OutlinedButton(onClick = { onEquipSupport("") }) { Text("Retirer le soutien") } }
+        items(supports.filter { it.name in state.inventory }) { u ->
+            OutlinedButton(onClick = { onEquipSupport(u.name) }, modifier = Modifier.fillMaxWidth()) {
+                Text("${if (state.equippedSupport == u.name) "●" else "○"} ${u.name} (+${u.bonus} PV${if (u.context > 0) ", contexte +${u.context}" else ""})")
+            }
+        }
         item { Text("Équipement possédé", style = MaterialTheme.typography.titleMedium) }
         if (state.inventory.isEmpty()) item { Text("Aucun objet acheté.") }
         items(state.inventory.groupingBy { it }.eachCount().toList().sortedBy { it.first }) { (name, quantity) ->
             Text("◆ $name${if (quantity > 1) " x$quantity" else ""}")
         }
         item { HorizontalDivider() }
+        item { Text("Boucliers et équipements de soutien", style = MaterialTheme.typography.titleMedium) }
+        item { Text("Bonus de dégâts uniquement après l'exercice propre à l'objet ; bonus de contexte uniquement si le soutien est sélectionné avant la rencontre. Convention d'interface : un seul soutien actif.", style = MaterialTheme.typography.bodySmall) }
+        items(supports) { u ->
+            Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("${u.name} — ${u.price} PO", style = MaterialTheme.typography.titleMedium)
+                Text("+${u.bonus} PV par exécution${if (u.context > 0) " · contexte +${u.context}" else ""}")
+                Text(u.exercise)
+                Button(enabled = state.character.po >= u.price && u.name !in state.inventory, onClick = { onSupportBuy(u) }) {
+                    Text(if (u.name in state.inventory) "Déjà possédé" else "Acheter (${u.price} PO)")
+                }
+            } }
+        }
         item { Text("Améliorations de combat", style = MaterialTheme.typography.titleMedium) }
         item { Text("Bonus fixes appliqués une fois par attaque, et non à chaque répétition. Les Pattes d’ours nécessitent de confirmer le comptage oral.", style = MaterialTheme.typography.bodySmall) }
         items(combatUpgrades) { u ->
@@ -850,7 +899,7 @@ private fun travel(s: AppState, km: Double): AppState {
     val actualProgress = newDistance - old
     val newTotal = s.totalTravelKm + actualProgress
     val newChecks = kotlin.math.floor(newTotal / 6.0).toInt()
-    val encounter = if (newChecks > oldChecks) generateEncounter(s.equippedWeapon) else s.lastEncounter
+    val encounter = if (newChecks > oldChecks) generateEncounter(s.equippedWeapon, s.equippedSupport) else s.lastEncounter
     val logs = if (encounter != null && newChecks > oldChecks) listOf("Rencontre : ${encounter.name} ×${encounter.quantity}") + s.log else listOf("+${"%.1f".format(km)} km parcouru") + s.log
     return s.copy(distance = newDistance, totalTravelKm = newTotal, lastEncounter = encounter, meditationActive = if (newChecks > oldChecks) false else s.meditationActive,
         vigorActive = if (newChecks > oldChecks) false else s.vigorActive,
@@ -897,7 +946,7 @@ private val encounterRules = listOf(
     EncounterRule("Orienteur obsédé", 0, 400, "Toutes", "Poursuite lors des rencontres suivantes ; quantité fixe : 1")
 )
 
-private fun generateEncounter(equippedWeapon: String): Encounter? {
+private fun generateEncounter(equippedWeapon: String, equippedSupport: String): Encounter? {
     val roll = (1..7).sumOf { Random.nextInt(1, 7) }
     val rule = encounterRules[roll - 7]
     // Campagne actuelle : Fitland. Les rencontres d'autres régions sont ignorées.
@@ -905,13 +954,14 @@ private fun generateEncounter(equippedWeapon: String): Encounter? {
     val quantity = if (rule.effect.contains("Quantité fixe", ignoreCase = true) || rule.effect.contains("quantité fixe", ignoreCase = true)) 1 else Random.nextInt(1, 7) * if (roll == 7) 10 else 1
     val contextDie = Random.nextInt(1, 7)
     val equipmentBonus = weapons.firstOrNull { it.name == equippedWeapon }?.contextBonus ?: 0
-    val contextBonus = equipmentBonus + if (roll == 15) 2 else 0
+    val supportBonus = supports.firstOrNull { it.name == equippedSupport }?.context ?: 0
+    val contextBonus = equipmentBonus + supportBonus + if (roll == 15) 2 else 0
     // La table p. 42 s'arrête à 6 : les dépassements sont traités comme 6.
     val contextRoll = (contextDie + contextBonus).coerceAtMost(6)
     val contexts = listOf("Vous êtes piégé !", "Une embuscade !", "Ils arrivent !", "Ils ne vous échapperont pas.", "Ils sont à votre merci.", "Ils n'ont rien vu.")
     val effects = listOf("10 burpees par adversaire", "Durée d'utilisation des objets ×2", "50 jumping jacks", "20 jumping jacks", "Aucun exercice", "Rencontre évitable")
     val safe = rule.effect.startsWith("Inoffensif")
-    return Encounter(rule.name, quantity, rule.hp, rule.reward * quantity, contexts[contextRoll - 1], effects[contextRoll - 1], roll, rule.hp * quantity, rule.effect, safe, contextDie, contextBonus, if (equipmentBonus > 0) equippedWeapon else "", enemyHp = List(quantity) { rule.hp })
+    return Encounter(rule.name, quantity, rule.hp, rule.reward * quantity, contexts[contextRoll - 1], effects[contextRoll - 1], roll, rule.hp * quantity, rule.effect, safe, contextDie, contextBonus, listOfNotNull(if (equipmentBonus > 0) equippedWeapon else null, if (supportBonus > 0) equippedSupport else null).joinToString(" + "), enemyHp = List(quantity) { rule.hp })
 }
 
 // Les anciennes sauvegardes n'avaient qu'une réserve commune : reconstruction déterministe.
@@ -988,7 +1038,7 @@ private fun saveState(context: Context, state: AppState) {
         put("totalTravelKm", state.totalTravelKm)
         put("encounters", state.encounters)
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
-        put("equippedWeapon", state.equippedWeapon); put("meditationActive", state.meditationActive)
+        put("equippedWeapon", state.equippedWeapon); put("equippedSupport", state.equippedSupport); put("meditationActive", state.meditationActive)
         put("vigorActive", state.vigorActive); put("quantumMode", state.quantumMode); put("illusionActive", state.illusionActive)
         put("quests", JSONArray(state.quests))
         state.lastEncounter?.let { e -> put("lastEncounter", JSONObject().apply {
@@ -1063,7 +1113,7 @@ private fun loadState(context: Context): AppState {
             destinationKm = obj.optDouble("destinationKm", baseState.destinationKm),
             totalTravelKm = obj.optDouble("totalTravelKm", obj.optDouble("distance", 0.0)),
             encounters = obj.optInt("encounters", 0), lastEncounter = encounter,
-            equippedWeapon = obj.optString("equippedWeapon", ""), meditationActive = obj.optBoolean("meditationActive", false),
+            equippedWeapon = obj.optString("equippedWeapon", ""), equippedSupport = obj.optString("equippedSupport", ""), meditationActive = obj.optBoolean("meditationActive", false),
             vigorActive = obj.optBoolean("vigorActive", false), quantumMode = obj.optString("quantumMode", ""), illusionActive = obj.optBoolean("illusionActive", false),
             log = strings("log", baseState.log), inventory = strings("inventory", baseState.inventory),
             quests = strings("quests", baseState.quests))
