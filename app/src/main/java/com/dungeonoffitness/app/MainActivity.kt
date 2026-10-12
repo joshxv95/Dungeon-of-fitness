@@ -152,10 +152,20 @@ fun DungeonApp() {
                     "adventure" -> Adventure(state,
                         onTravel = { km -> update(travel(state, km)) },
                         onResolve = { damage -> update(resolve(state, damage)) },
-                        onWeaponAttack = { name, count, pattesUsed ->
+                        onWeaponAttack = { name, count, pattesUsed, target ->
                             val weapon = weapons.firstOrNull { it.name == name }
                             if (weapon != null && name in state.inventory && count > 0)
-                                update(resolve(state, attackDamage(weapon, count, state.inventory, pattesUsed, state.meditationActive, state.vigorActive)))
+                                {
+                                    val damage = attackDamage(weapon, count, state.inventory, pattesUsed, state.meditationActive, state.vigorActive)
+                                    val e = state.lastEncounter
+                                    if (weapon.ranged && e != null) {
+                                        val hp = encounterHp(e)
+                                        if (target != null && target in hp.indices && hp[target] > 0) {
+                                            val after = resolveTarget(state, damage, target)
+                                            update(after.copy(log = (listOf("${weapon.name} : cible ${e.name} n°${target + 1}, ${minOf(damage, hp[target])} PV infligés (sans transfert).") + after.log).take(100)))
+                                        }
+                                    } else if (!weapon.ranged) update(resolve(state, damage))
+                                }
                         },
                         onSkip = { update(skipEncounter(state)) },
                         onMeditate = {
@@ -312,7 +322,7 @@ private val fitlandPlaces = listOf(
     state: AppState,
     onTravel: (Double) -> Unit,
     onResolve: (Int) -> Unit,
-    onWeaponAttack: (String, Int, Boolean) -> Unit,
+    onWeaponAttack: (String, Int, Boolean, Int?) -> Unit,
     onSkip: () -> Unit,
     onMeditate: () -> Unit,
     onUsePersuasion: () -> Unit,
@@ -325,6 +335,7 @@ private val fitlandPlaces = listOf(
     var distanceInput by remember { mutableStateOf("") }
     var damageInput by remember { mutableStateOf("") }
     var selectedWeapon by remember { mutableStateOf("") }
+    var rangedTarget by remember { mutableIntStateOf(-1) }
     var attackCount by remember { mutableStateOf("1") }
     var pattesUsed by remember { mutableStateOf(false) }
     val novice = state.character.profileType == "novice"
@@ -434,14 +445,23 @@ private val fitlandPlaces = listOf(
                     if (owned.isNotEmpty()) {
                         Text("Attaquer avec l'équipement", style = MaterialTheme.typography.titleMedium)
                         owned.forEach { w ->
-                            OutlinedButton(onClick = { selectedWeapon = w.name }, modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(onClick = { selectedWeapon = w.name; rangedTarget = -1 }, modifier = Modifier.fillMaxWidth()) {
                                 Text("${if (selectedWeapon == w.name) "●" else "○"} ${w.name} — ${w.damage} PV / ${w.unit}")
                             }
                         }
                         val w = owned.firstOrNull { it.name == selectedWeapon }
                         if (w != null) {
                             Text("Exercice : ${w.exercise}")
-                            if (w.ranged) Text("Effet : dégâts à distance")
+                            if (w.ranged) {
+                                Text("Attaque à distance : choisis une cible. Les dégâts excédentaires ne touchent pas les autres ennemis (règle maison de ciblage).")
+                                val living = encounterHp(e).indices.filter { encounterHp(e)[it] > 0 }
+                                living.forEach { index ->
+                                    OutlinedButton(onClick = { rangedTarget = index }, modifier = Modifier.fillMaxWidth()) {
+                                        Text("${if (rangedTarget == index) "●" else "○"} ${e.name} n°${index + 1} — ${encounterHp(e)[index]} PV")
+                                    }
+                                }
+                                if (rangedTarget !in living) Text("Sélectionne un adversaire encore debout pour lancer l'attaque.")
+                            }
                             if (w.contextBonus > 0) Text("Effet : +${w.contextBonus} au contexte, si équipée avant le tirage")
                             val baseSeconds = if (w.unit.contains("sec.")) w.unit.substringBefore(' ').toIntOrNull() else null
                             if (baseSeconds != null) {
@@ -479,8 +499,10 @@ private val fitlandPlaces = listOf(
                                 }
                                 Text("Temps total à réaliser : ${effective.toLong() * n} secondes pour $n série(s).")
                             }
-                            Button(enabled = n in 1..1000,
-                                onClick = { onWeaponAttack(w.name, n, pattesUsed); attackCount = "1"; pattesUsed = false },
+                            if (w.ranged && rangedTarget in encounterHp(e).indices && encounterHp(e)[rangedTarget] > 0 && n > 0)
+                                Text("Dégâts effectifs sur cette cible : ${minOf(damagePreview, encounterHp(e)[rangedTarget])} PV ; surplus perdu.")
+                            Button(enabled = n in 1..1000 && (!w.ranged || (rangedTarget in encounterHp(e).indices && encounterHp(e)[rangedTarget] > 0)),
+                                onClick = { onWeaponAttack(w.name, n, pattesUsed, if (w.ranged) rangedTarget else null); attackCount = "1"; pattesUsed = false },
                                 modifier = Modifier.fillMaxWidth()) { Text("Exercice réalisé — infliger $damagePreview PV") }
                         }
                     } else Text("Aucune arme achetée : consulte le Sac pour t'équiper.")
@@ -707,7 +729,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun ApplicationInfo() {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Dungeon of Fitness · Version 1.12.0", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Dungeon of Fitness · Version 1.13.0", style = MaterialTheme.typography.titleLarge) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
@@ -717,6 +739,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             "Arme active et bonus de contexte des gants de vétéran",
             "Historique du dé de contexte et de ses modificateurs",
             "Suivi manuel des dégâts et butin à la victoire",
+            "Ciblage individuel pour les armes à distance (règle maison)",
             "Mode novice : distance de carte convertie en minutes",
             "Position initiale selon la classe à la création du personnage",
             "Sauvegarde locale automatique",

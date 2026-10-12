@@ -115,3 +115,6 @@ Décompresser et transférer le contenu du dossier `dungeon-fitness-app` à la r
 - VersionCode 110 pour permettre les mises à jour suivantes (utiliser 111, 112, etc.).
 - Dans le Sac, +100 / +1000 PO pour les tests uniquement (hors règles du livre, persistant).
 - Shaker illusion : achat, stock, consommation, statut sauvegardé pendant le combat. Son effet d'alliés illusoires est affiché sans inventer de bonus de dégâts.
+
+## v1.13 — ciblage des armes à distance
+Les armes marquées à distance ciblent un adversaire vivant choisi par le joueur, sans transfert de dégâts. Convention maison, distincte du livre. Les armes ordinaires conservent la répartition automatique.
