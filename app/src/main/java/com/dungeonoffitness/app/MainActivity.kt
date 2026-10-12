@@ -7,6 +7,13 @@ import org.json.JSONArray
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
@@ -51,6 +58,72 @@ private data class Character(
     val unlockedClasses: List<String> = emptyList(),
     val completedAchievements: List<String> = emptyList()
 )
+
+
+// Illustrations originales embarquées dans l'APK : aucune connexion requise.
+private fun portraitFor(className: String): Int = when (className) {
+    "Guerrier" -> R.drawable.portrait_guerrier
+    "Acrobate" -> R.drawable.portrait_acrobate
+    "Chasseur" -> R.drawable.portrait_chasseur
+    "Éclaireur" -> R.drawable.portrait_eclaireur
+    "Mage" -> R.drawable.portrait_mage
+    "Moine" -> R.drawable.portrait_moine
+    "Barde" -> R.drawable.portrait_barde
+    "Cavalier" -> R.drawable.portrait_cavalier
+    else -> R.drawable.portrait_guerrier
+}
+private fun classSymbol(className: String): String = when (className) {
+    "Guerrier" -> "⚔️"; "Acrobate" -> "🤸"; "Chasseur" -> "🏹"
+    "Éclaireur" -> "🧭"; "Mage" -> "🔮"; "Moine" -> "🙏"
+    "Barde" -> "🎵"; "Cavalier" -> "🐎"; else -> "🛡️"
+}
+private fun itemSymbol(name: String): String = when {
+    name.startsWith("Shaker") -> "🧪"
+    name.contains("Bouclier", true) -> "🛡️"
+    name.contains("Bottes", true) -> "🥾"
+    name.contains("Casque", true) -> "🪖"
+    name.contains("Bracelets", true) || name.contains("Gants", true) -> "🥊"
+    name.contains("Arc", true) || name.contains("Arbalète", true) || name.contains("Sarbacane", true) -> "🏹"
+    name.contains("Épée", true) || name.contains("Sabre", true) || name.contains("Couteaux", true) -> "⚔️"
+    name.contains("Haltère", true) || name.contains("Masse", true) -> "🏋️"
+    name.contains("Lance", true) || name.contains("Hallebarde", true) || name.contains("Perche", true) -> "🔱"
+    name.contains("Manuel", true) -> "📜"
+    name.contains("Pattes", true) -> "🐾"
+    name.contains("Tapis", true) -> "🧘"
+    else -> "✨"
+}
+@Composable private fun ClassPortrait(className: String, modifier: Modifier = Modifier) {
+    Image(painter = painterResource(portraitFor(className)),
+        contentDescription = "Illustration de la classe $className",
+        contentScale = ContentScale.Crop,
+        modifier = modifier)
+}
+@Composable private fun HealthGauge(label: String, current: Int, maximum: Int, modifier: Modifier = Modifier) {
+    val fraction = if (maximum > 0) (current.toFloat() / maximum).coerceIn(0f, 1f) else 0f
+    val tint = when { fraction > .55f -> Color(0xFF53BD72); fraction > .25f -> Color(0xFFF0B44E); else -> Color(0xFFE65C5C) }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, style = MaterialTheme.typography.labelMedium)
+            Text("$current / $maximum PV", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+        }
+        LinearProgressIndicator(progress = { fraction }, color = tint,
+            trackColor = Color(0xFF302B35), modifier = Modifier.fillMaxWidth().height(12.dp))
+    }
+}
+@Composable private fun ClassBanner(c: Character) {
+    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF24232F))) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            ClassPortrait(c.className, Modifier.size(width = 100.dp, height = 120.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("${classSymbol(c.className)} ${c.className.uppercase()}", color = Color(0xFFEBC582), style = MaterialTheme.typography.titleLarge)
+                Text(c.name, style = MaterialTheme.typography.titleMedium)
+                Text("Niveau ${c.level} · ${c.divinity}", style = MaterialTheme.typography.bodyMedium)
+                Text(if (c.profileType == "advanced") "Profil avancé" else "Profil novice", style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
 
 private val classAchievements = linkedMapOf(
     "Éclaireur" to listOf("Survie", "Orientation", "Exploration"),
@@ -163,7 +236,11 @@ fun DungeonApp() {
     fun update(next: AppState) { state = next; saveState(context, next) }
     var tab by remember { mutableStateOf("home") }
     var resetDialog by remember { mutableStateOf(false) }
-    MaterialTheme(colorScheme = darkColorScheme()) {
+    MaterialTheme(colorScheme = darkColorScheme(
+        primary = Color(0xFFE5B66C), onPrimary = Color(0xFF211609),
+        secondary = Color(0xFF80B9BB), surface = Color(0xFF191B25),
+        background = Color(0xFF11141D), surfaceVariant = Color(0xFF292A36)
+    )) {
         Scaffold(bottomBar = { NavigationBar {
             listOf("home" to "Accueil", "adventure" to "Aventure", "character" to "Personnage", "inventory" to "Sac", "journal" to "Journal", "application" to "Application").forEach { (id, label) ->
                 NavigationBarItem(selected = tab == id, onClick = { tab = id }, icon = { Text(if (id == "home") "⌂" else if (id == "adventure") "⚔" else if (id == "character") "♙" else if (id == "inventory") "◆" else if (id == "journal") "▤" else "⚙") }, label = { Text(label) })
@@ -329,7 +406,8 @@ fun DungeonApp() {
 
 @Composable private fun Home(state: AppState, start: () -> Unit) {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { Text("DUNGEON OF FITNESS", style = MaterialTheme.typography.headlineMedium) }
+        item { Text("⚔ DUNGEON OF FITNESS", color = Color(0xFFEBC582), style = MaterialTheme.typography.headlineMedium) }
+        item { ClassBanner(state.character) }
         item { Text("Le Disque-Fonte devient enfin jouable sans le PDF.", style = MaterialTheme.typography.bodyLarge) }
         item { Card { Column(Modifier.padding(18.dp)) {
             Text(state.character.name, style = MaterialTheme.typography.titleLarge)
@@ -387,7 +465,7 @@ private val fitlandPlaces = listOf(
     val unit = if (novice) "min" else "km"
     val pending = state.lastEncounter != null
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("Expédition", style = MaterialTheme.typography.headlineSmall) }
+        item { Text("🗺️ Expédition", color = Color(0xFFEBC582), style = MaterialTheme.typography.headlineSmall) }
         item { Text("Position actuelle : ${state.character.location}") }
         item { Text("Classe : ${state.character.className} · Niveau ${state.character.level}") }
         if (state.character.specialAbility.isNotBlank()) item { Text("Mouvement personnel : ${state.character.specialAbility}", style = MaterialTheme.typography.bodySmall) }
@@ -459,10 +537,11 @@ private val fitlandPlaces = listOf(
         item { Text("Une rencontre est déclenchée tous les 6 ${unit} cumulés. Les adversaires et contextes proviennent de la table officielle (p. 42-43). Certains effets spéciaux restent manuels.", style = MaterialTheme.typography.bodySmall) }
         state.lastEncounter?.let { e ->
             item { HorizontalDivider() }
-            item { Text("⚠ RENCONTRE — TABLE DU LIVRE", style = MaterialTheme.typography.headlineSmall) }
+            item { Text("⚔️ RENCONTRE — TABLE DU LIVRE", color = Color(0xFFEBC582), style = MaterialTheme.typography.headlineSmall) }
             item { Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("${e.name} ×${e.quantity} (jet : ${e.roll})", style = MaterialTheme.typography.titleLarge)
-                Text("PV restants : ${encounterHp(e).sum()} / ${e.hp * e.quantity} · Butin potentiel : ${e.reward} PO")
+                HealthGauge("❤️ Santé totale des ennemis", encounterHp(e).sum(), e.hp * e.quantity)
+                Text("🪙 Butin potentiel : ${e.reward} PO")
                 if (state.bardJourney) {
                     if (e.effect.contains("quantité fixe", ignoreCase = true))
                         Text("Barde audacieux : rencontre à quantité fixe (livre), ni doublement ni bonus de 25 %.", style = MaterialTheme.typography.bodySmall)
@@ -471,7 +550,7 @@ private val fitlandPlaces = listOf(
                 }
                 Text("Adversaires : ${encounterHp(e).count { it > 0 }} encore debout sur ${e.quantity}")
                 encounterHp(e).forEachIndexed { index, hpLeft ->
-                    Text("${e.name} n°${index + 1} : $hpLeft / ${e.hp} PV${if (hpLeft == 0) " — vaincu" else ""}")
+                    HealthGauge("${if (hpLeft == 0) "💀" else "👹"} ${e.name} n°${index + 1}", hpLeft, e.hp)
                 }
                 if (e.contextDie > 0) {
                     Text("Dé de contexte : ${e.contextDie} + ${e.contextBonus} = ${(e.contextDie + e.contextBonus).coerceAtMost(6)}")
@@ -549,7 +628,7 @@ private val fitlandPlaces = listOf(
                         Text("Attaquer avec l'équipement", style = MaterialTheme.typography.titleMedium)
                         owned.forEach { w ->
                             OutlinedButton(onClick = { selectedWeapon = w.name; rangedTarget = -1 }, modifier = Modifier.fillMaxWidth()) {
-                                Text("${if (selectedWeapon == w.name) "●" else "○"} ${w.name} — ${w.damage} PV / ${w.unit}")
+                                Text("${if (selectedWeapon == w.name) "●" else "○"} ${itemSymbol(w.name)} ${w.name} — ${w.damage} PV / ${w.unit}")
                             }
                         }
                         val w = owned.firstOrNull { it.name == selectedWeapon }
@@ -743,6 +822,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         (difficulty.isBlank() || difficulty.toIntOrNull() in 1..10)
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Fiche de personnage", style = MaterialTheme.typography.headlineSmall) }
+        item { ClassBanner(c) }
         item { Text("${c.name} · ${c.className} · ${c.divinity} · Niveau ${c.level}") }
         item { OutlinedButton(onClick = { editing = !editing }) { Text(if (editing) "Fermer" else "Modifier le nom") } }
         if (editing) {
@@ -912,8 +992,8 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun Inventory(state: AppState, onEquip: (String) -> Unit, onBuy: (Weapon) -> Unit, onUpgradeBuy: (CombatUpgrade) -> Unit, onSupportBuy: (Support) -> Unit, onEquipSupport: (String) -> Unit, onConsumableBuy: (String) -> Unit, onTestGold: (Int) -> Unit) {
     var bagTab by remember { mutableStateOf("Armes") }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item { Text("Sac et armurerie", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Bourse : ${state.character.po} PO") }
+        item { Text("🎒 Sac et armurerie", color = Color(0xFFEBC582), style = MaterialTheme.typography.headlineSmall) }
+        item { Text("🪙 Bourse : ${state.character.po} PO", style = MaterialTheme.typography.titleMedium) }
         item { Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Laboratoire de test — PO fictifs", style = MaterialTheme.typography.titleMedium)
             Text("Hors règles du livre : ces boutons ajoutent des PO à la sauvegarde actuelle pour tester les achats. Désactiver leur usage lors d'une vraie partie.", style = MaterialTheme.typography.bodySmall)
@@ -938,7 +1018,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         } }
         if (owned.isEmpty()) item { Text("Aucun objet dans cette catégorie.") }
         items(owned.groupingBy { it }.eachCount().toList().sortedBy { it.first }) { (name, quantity) ->
-            Text("◆ $name${if (quantity > 1) " x$quantity" else ""}")
+            Text("${itemSymbol(name)}  $name${if (quantity > 1) " ×$quantity" else ""}")
         }
         if (bagTab == "Armes") {
         item { Text("Arme active pour les prochains jets de rencontre", style = MaterialTheme.typography.titleMedium) }
@@ -946,7 +1026,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         item { OutlinedButton(onClick = { onEquip("") }) { Text("Aucune arme active") } }
         items(weapons.filter { it.name in state.inventory }) { w ->
             OutlinedButton(onClick = { onEquip(w.name) }, modifier = Modifier.fillMaxWidth()) {
-                Text("${if (state.equippedWeapon == w.name) "●" else "○"} ${w.name}${if (w.contextBonus != 0) " · Contexte +${w.contextBonus}" else ""}")
+                Text("${if (state.equippedWeapon == w.name) "●" else "○"} ${itemSymbol(w.name)} ${w.name}${if (w.contextBonus != 0) " · Contexte +${w.contextBonus}" else ""}")
             }
         }
         item { Text("L'arme doit être sélectionnée AVANT le tirage : changer d'arme ne modifie pas rétroactivement une rencontre en cours.", style = MaterialTheme.typography.bodySmall) }
@@ -957,7 +1037,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         item { OutlinedButton(onClick = { onEquipSupport("") }) { Text("Retirer le soutien") } }
         items(supports.filter { it.name in state.inventory }) { u ->
             OutlinedButton(onClick = { onEquipSupport(u.name) }, modifier = Modifier.fillMaxWidth()) {
-                Text("${if (state.equippedSupport == u.name) "●" else "○"} ${u.name} (+${u.bonus} PV${if (u.context > 0) ", contexte +${u.context}" else ""})")
+                Text("${if (state.equippedSupport == u.name) "●" else "○"} ${itemSymbol(u.name)} ${u.name} (+${u.bonus} PV${if (u.context > 0) ", contexte +${u.context}" else ""})")
             }
         }
         item { HorizontalDivider() }
@@ -965,7 +1045,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         item { Text("Bonus de dégâts uniquement après l'exercice propre à l'objet ; bonus de contexte uniquement si le soutien est sélectionné avant la rencontre. Convention d'interface : un seul soutien actif.", style = MaterialTheme.typography.bodySmall) }
         items(supports) { u ->
             Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text("${u.name} — ${u.price} PO", style = MaterialTheme.typography.titleMedium)
+                Text("${itemSymbol(u.name)} ${u.name} — ${u.price} PO", style = MaterialTheme.typography.titleMedium)
                 Text("+${u.bonus} PV par exécution${if (u.context > 0) " · contexte +${u.context}" else ""}")
                 Text(u.exercise)
                 Button(enabled = state.character.po >= u.price && u.name !in state.inventory, onClick = { onSupportBuy(u) }) {
@@ -979,7 +1059,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         item { Text("Bonus fixes appliqués une fois par attaque, et non à chaque répétition. Les Pattes d’ours nécessitent de confirmer le comptage oral.", style = MaterialTheme.typography.bodySmall) }
         items(combatUpgrades) { u ->
             Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text("${u.name} — ${u.price} PO", style = MaterialTheme.typography.titleMedium)
+                Text("${itemSymbol(u.name)} ${u.name} — ${u.price} PO", style = MaterialTheme.typography.titleMedium)
                 Text("+${u.bonus} PV · ${u.description}")
                 Button(enabled = state.character.po >= u.price && u.name !in state.inventory,
                     onClick = { onUpgradeBuy(u) }) { Text(if (u.name in state.inventory) "Déjà possédé" else "Acheter (${u.price} PO)") }
@@ -998,7 +1078,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         )
         items(consumables) { (name, effect) ->
             Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("$name — 100 PO", style = MaterialTheme.typography.titleMedium)
+                Text("${itemSymbol(name)} $name — 100 PO", style = MaterialTheme.typography.titleMedium)
                 Text(effect)
                 Text("En stock : ${state.inventory.count { it == name }}")
                 Button(enabled = state.character.po >= 100, onClick = { onConsumableBuy(name) }) { Text("Acheter (100 PO)") }
@@ -1011,7 +1091,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         item { Text("Achat irréversible : le livre interdit la revente. Les règles de dotation initiale (10 PO par niveau à dépenser intégralement) ne sont pas encore automatisées.", style = MaterialTheme.typography.bodySmall) }
         items(weapons) { w ->
             Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text("${w.name} — ${w.price} PO", style = MaterialTheme.typography.titleMedium)
+                Text("${itemSymbol(w.name)} ${w.name} — ${w.price} PO", style = MaterialTheme.typography.titleMedium)
                 Text("${w.damage} PV / ${w.unit}")
                 Text(w.exercise)
                 if (w.ranged) Text("Effet officiel : dégâts à distance")
