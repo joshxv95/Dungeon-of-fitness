@@ -301,7 +301,11 @@ fun DungeonApp() {
                                 log = (listOf("Achat : ${weapon.name} (${weapon.price} PO)") + state.log).take(100)))
                     })
                     "journal" -> Journal(state)
-                    "application" -> ApplicationInfo()
+                    "application" -> ApplicationInfo(state, onResetDailyTests = {
+                        val current = dailyState(state)
+                        update(current.copy(scoutUses = 0, bardUses = 0, warriorUsed = false,
+                            log = (listOf("MODE TEST : compteurs quotidiens Éclaireur, Barde et Guerrier remis à zéro (sans modifier l’aventure).") + current.log).take(100)))
+                    })
                     else -> Home(state) { tab = "adventure" }
                 }
             }
@@ -459,6 +463,12 @@ private val fitlandPlaces = listOf(
             item { Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("${e.name} ×${e.quantity} (jet : ${e.roll})", style = MaterialTheme.typography.titleLarge)
                 Text("PV restants : ${encounterHp(e).sum()} / ${e.hp * e.quantity} · Butin potentiel : ${e.reward} PO")
+                if (state.bardJourney) {
+                    if (e.effect.contains("quantité fixe", ignoreCase = true))
+                        Text("Barde audacieux : rencontre à quantité fixe (livre), ni doublement ni bonus de 25 %.", style = MaterialTheme.typography.bodySmall)
+                    else
+                        Text("Barde audacieux (règle maison) : quantité ×2 et butin +25 % sur la quantité doublée (×2,5 par rapport au butin de base).", style = MaterialTheme.typography.bodySmall)
+                }
                 Text("Adversaires : ${encounterHp(e).count { it > 0 }} encore debout sur ${e.quantity}")
                 encounterHp(e).forEachIndexed { index, hpLeft ->
                     Text("${e.name} n°${index + 1} : $hpLeft / ${e.hp} PV${if (hpLeft == 0) " — vaincu" else ""}")
@@ -851,10 +861,14 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 }
 @Composable private fun StatRow(name: String, value: Int) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(name); Text(value.toString(), style = MaterialTheme.typography.titleMedium) } }
 
-@Composable private fun ApplicationInfo() {
+@Composable private fun ApplicationInfo(state: AppState, onResetDailyTests: () -> Unit) {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Dungeon of Fitness · Version 1.19.0", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Dungeon of Fitness · Version 1.19.1", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Mode test — capacités quotidiennes", style = MaterialTheme.typography.titleMedium) }
+        item { Text("Éclaireur : ${dailyState(state).scoutUses}/2 · Barde : ${dailyState(state).bardUses}/2 · Guerrier : ${if (dailyState(state).warriorUsed) "utilisé" else "disponible"}.") }
+        item { OutlinedButton(onClick = onResetDailyTests, modifier = Modifier.fillMaxWidth()) { Text("MODE TEST : remettre les utilisations du jour à zéro") } }
+        item { Text("Ne supprime ni le personnage, ni les PO, ni l’inventaire, ni les kilomètres, ni le trajet ou le combat en cours. Le bonus Guerrier déjà activé pendant le combat reste actif.", style = MaterialTheme.typography.bodySmall) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
@@ -1020,7 +1034,12 @@ private fun travel(s: AppState, km: Double): AppState {
     val newTotal = s.totalTravelKm + if (s.retreatActive) 0.0 else actualProgress
     val newChecks = kotlin.math.floor(newTotal / 6.0).toInt()
     val encounter = if (!s.retreatActive && newChecks > oldChecks) generateEncounter(s.equippedWeapon, s.equippedSupport, s.character, s.bardJourney) else s.lastEncounter
-    val logs = if (encounter != null && !s.retreatActive && newChecks > oldChecks) listOf("Rencontre : ${encounter.name} ×${encounter.quantity}") + s.log else listOf("+${"%.1f".format(km)} km parcouru") + s.log
+    val logs = if (encounter != null && !s.retreatActive && newChecks > oldChecks) listOf(
+        "Rencontre : ${encounter.name} ×${encounter.quantity}" + if (s.bardJourney) {
+            if (encounter.effect.contains("quantité fixe", ignoreCase = true)) " — Barde audacieux : quantité fixe, pas de bonus."
+            else " — Barde audacieux : quantité doublée et butin ×2,5."
+        } else ""
+    ) + s.log else listOf("+${"%.1f".format(km)} km parcouru") + s.log
     return s.copy(distance = newDistance, totalTravelKm = newTotal, lastEncounter = encounter, meditationActive = if (newChecks > oldChecks) false else s.meditationActive, warriorActive = if (newChecks > oldChecks) false else s.warriorActive,
         vigorActive = if (newChecks > oldChecks) false else s.vigorActive,
         quantumMode = if (newChecks > oldChecks) "" else s.quantumMode, encounters = s.encounters + if (!s.retreatActive && newChecks > oldChecks) 1 else 0, log = logs.take(100))

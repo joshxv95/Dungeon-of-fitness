@@ -135,3 +135,8 @@ Les armes marquées à distance ciblent un adversaire vivant choisi par le joueu
 - La majoration ne s'applique qu'aux récompenses obtenues après victoire ; fuite et évitement ne rapportent rien.
 - Sauvegarde `bardUses`, migration de l'ancien `bardUsed` ; compteur remis à zéro au changement de date locale. Les trajets en cours conservent leur mode audacieux éventuel.
 - Règle maison distincte des règles officielles du livre.
+
+## v1.19.1 — Mode test des capacités quotidiennes
+- Bouton dans Application : remet à zéro les utilisations Éclaireur, Barde et Guerrier sans supprimer la sauvegarde.
+- La rencontre précise désormais si le bonus du Barde audacieux s’applique ou si le monstre a une quantité fixe.
+- Réinitialisation réservée aux tests, hors règles du livre.
