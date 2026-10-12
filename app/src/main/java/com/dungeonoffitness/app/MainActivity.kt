@@ -140,6 +140,10 @@ private data class AppState(
     val illusionActive: Boolean = false,
     val retreatActive: Boolean = false,
     val retreatOrigin: String = "",
+    val abilityDay: String = "",
+    val scoutUses: Int = 0,
+    val warriorUsed: Boolean = false,
+    val warriorActive: Boolean = false,
     val quests: List<String> = listOf("Créer et suivre votre profil", "Tenir votre journal d'entraînement")
 )
 
@@ -168,13 +172,14 @@ fun DungeonApp() {
                     "home" -> Home(state) { tab = "adventure" }
                     "adventure" -> Adventure(state,
                         onTravel = { km -> update(travel(state, km)) },
+                        onWarrior = { update(activateWarrior(state)) },
                         onResolve = { damage -> update(resolve(state, damage)) },
                         onWeaponAttack = { name, count, pattesUsed, target, supportConfirmed ->
                             val weapon = weapons.firstOrNull { it.name == name }
                             if (weapon != null && name in state.inventory && count > 0)
                                 {
                                     val support = supports.firstOrNull { it.name == state.equippedSupport && it.name in state.inventory }
-                                    val damage = attackDamage(weapon, count, state.inventory, pattesUsed, state.meditationActive, state.vigorActive, if (supportConfirmed) support?.bonus ?: 0 else 0)
+                                    val damage = warriorDamage(state, attackDamage(weapon, count, state.inventory, pattesUsed, state.meditationActive, state.vigorActive, if (supportConfirmed) support?.bonus ?: 0 else 0))
                                     val e = state.lastEncounter
                                     if (weapon.ranged && e != null) {
                                         val hp = encounterHp(e)
@@ -196,7 +201,7 @@ fun DungeonApp() {
                         onUsePersuasion = {
                             val e = state.lastEncounter
                             if (e != null && "Shaker persuasion" in state.inventory)
-                                update(state.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false,
+                                update(state.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, warriorActive = false,
                                     inventory = removeOne(state.inventory, "Shaker persuasion"),
                                     log = (listOf("Shaker persuasion consommé : combat contre ${e.name} ignoré, sans récompense.") + state.log).take(100)))
                         },
@@ -235,9 +240,8 @@ fun DungeonApp() {
                                 }
                             }
                         },
-                        onPlan = { destination, km ->
-                            update(state.copy(destination = destination, destinationKm = km, distance = 0.0,
-                                log = (listOf("Nouveau trajet vers $destination : ${"%.1f".format(km)} km (distance relevée sur la carte).") + state.log).take(100)))
+                        onPlan = { destination, km, scout ->
+                            update(planJourney(state, destination, km, scout))
                         },
                         onArrive = {
                             update(state.copy(character = state.character.copy(location = state.destination),
@@ -347,6 +351,7 @@ private val fitlandPlaces = listOf(
 @Composable private fun Adventure(
     state: AppState,
     onTravel: (Double) -> Unit,
+    onWarrior: () -> Unit,
     onResolve: (Int) -> Unit,
     onWeaponAttack: (String, Int, Boolean, Int?, Boolean) -> Unit,
     onSkip: () -> Unit,
@@ -355,12 +360,13 @@ private val fitlandPlaces = listOf(
     onMeditate: () -> Unit,
     onUsePersuasion: () -> Unit,
     onUseConsumable: (String, String) -> Unit,
-    onPlan: (String, Double) -> Unit,
+    onPlan: (String, Double, Boolean) -> Unit,
     onArrive: () -> Unit
 ) {
     var selectedPlace by remember { mutableStateOf("Fontaria") }
     var expanded by remember { mutableStateOf(false) }
     var distanceInput by remember { mutableStateOf("") }
+    var scoutChosen by remember { mutableStateOf(false) }
     var damageInput by remember { mutableStateOf("") }
     var selectedWeapon by remember { mutableStateOf("") }
     var rangedTarget by remember { mutableIntStateOf(-1) }
@@ -377,6 +383,8 @@ private val fitlandPlaces = listOf(
         if (state.character.specialAbility.isNotBlank()) item { Text("Mouvement personnel : ${state.character.specialAbility}", style = MaterialTheme.typography.bodySmall) }
         if (state.character.profileType == "advanced" && state.character.className == "Acrobate") item { Text("Acrobate (livre p. 41) : +2 au jet de contexte ; en cas de fuite, retour au départ OU poursuite vers la destination.") }
         if (state.character.profileType == "advanced" && state.character.className == "Chasseur") item { Text("Chasseur (livre p. 41) : peut réduire de 1 le dé de quantité d’une rencontre choisie pendant un déplacement.") }
+        if (state.character.profileType == "advanced" && state.character.className == "Éclaireur") item { Text("Éclaireur : distance divisée par 2 pour un déplacement, deux fois par jour. Utilisations restantes : ${2 - dailyState(state).scoutUses}.") }
+        if (state.character.profileType == "advanced" && state.character.className == "Guerrier") item { Text("Guerrier : double les dégâts d’une rencontre contre une Prière, une fois par jour. ${if (dailyState(state).warriorUsed) "Déjà utilisée aujourd’hui." else "Disponible."}") }
         if (state.retreatActive) item { Text("RETOUR DE FUITE : rejoignez ${state.retreatOrigin}. Aucune nouvelle rencontre pendant ce trajet.", color = MaterialTheme.colorScheme.error) }
         item { Text("Selon le livre (p. 41), les trajets sont réalisés réellement à pied, à vélo ou par un autre moyen non motorisé. Pour un novice : 1 km de carte = 1 minute d'endurance.") }
         if (state.destinationKm <= 0.0) {
@@ -395,9 +403,16 @@ private val fitlandPlaces = listOf(
                 label = { Text("Distance sur la carte (km)") }, singleLine = true,
                 modifier = Modifier.fillMaxWidth()) }
             item { Text("Reporte la distance indiquée sur la carte du livre, page 51. Les itinéraires ne sont pas encore calculés automatiquement.") }
+            if (state.character.profileType == "advanced" && state.character.className == "Éclaireur") item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = scoutChosen, enabled = dailyState(state).scoutUses < 2, onCheckedChange = { scoutChosen = it })
+                    Text("Éclaireur : utiliser 1 charge quotidienne pour réduire ce trajet de moitié")
+                }
+                if (scoutChosen && dailyState(state).scoutUses < 2) Text("Distance à parcourir : ${"%.2f".format((distanceInput.replace(',','.').toDoubleOrNull() ?: 0.0) / 2)} km (règle p. 41)")
+            }
             item { Button(enabled = (distanceInput.replace(',','.').toDoubleOrNull() ?: 0.0) > 0.0 &&
                 selectedPlace != state.character.location,
-                onClick = { onPlan(selectedPlace, distanceInput.replace(',','.').toDouble()) },
+                onClick = { onPlan(selectedPlace, distanceInput.replace(',','.').toDouble(), scoutChosen) ; scoutChosen = false },
                 modifier = Modifier.fillMaxWidth()) { Text("Démarrer le trajet") } }
         } else {
             item { Text("Destination : ${state.destination} · ${"%.1f".format(state.destinationKm)} $unit") }
@@ -483,6 +498,11 @@ private val fitlandPlaces = listOf(
                             Button(onClick = { onUseConsumable("Shaker quantique", "Ralentir") }) { Text("Ralentir") }
                         }
                     }
+                    if (state.character.profileType == "advanced" && state.character.className == "Guerrier") {
+                        if (state.warriorActive) Text("Guerrier : Prière accomplie, dégâts des attaques avec arme ×2 jusqu’à la fin de cette rencontre.")
+                        else if (!dailyState(state).warriorUsed) Button(onClick = onWarrior, modifier = Modifier.fillMaxWidth()) { Text("Guerrier — confirmer 1 Prière effectuée, activer dégâts ×2") }
+                        else Text("Guerrier : pouvoir quotidien déjà utilisé.")
+                    }
                     val owned = weapons.filter { it.name in state.inventory }
                     if (owned.isNotEmpty()) {
                         Text("Attaquer avec l'équipement", style = MaterialTheme.typography.titleMedium)
@@ -539,7 +559,7 @@ private val fitlandPlaces = listOf(
                                 }
                             }
                             val n = (attackCount.toIntOrNull() ?: 0).coerceIn(0, 1000)
-                            val damagePreview = if (n > 0) attackDamage(w, n, state.inventory, pattesUsed, state.meditationActive, state.vigorActive, if (supportConfirmed) activeSupport?.bonus ?: 0 else 0) else 0
+                            val damagePreview = if (n > 0) warriorDamage(state, attackDamage(w, n, state.inventory, pattesUsed, state.meditationActive, state.vigorActive, if (supportConfirmed) activeSupport?.bonus ?: 0 else 0)) else 0
                             if (baseSeconds != null && n > 0) {
                                 val ambushFactor = if (e.context == "Une embuscade !") 2 else 1
                                 val effective = when (state.quantumMode) {
@@ -803,7 +823,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun ApplicationInfo() {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Dungeon of Fitness · Version 1.16.0", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Dungeon of Fitness · Version 1.17.0", style = MaterialTheme.typography.titleLarge) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
@@ -970,7 +990,7 @@ private fun travel(s: AppState, km: Double): AppState {
     val newChecks = kotlin.math.floor(newTotal / 6.0).toInt()
     val encounter = if (!s.retreatActive && newChecks > oldChecks) generateEncounter(s.equippedWeapon, s.equippedSupport, s.character) else s.lastEncounter
     val logs = if (encounter != null && !s.retreatActive && newChecks > oldChecks) listOf("Rencontre : ${encounter.name} ×${encounter.quantity}") + s.log else listOf("+${"%.1f".format(km)} km parcouru") + s.log
-    return s.copy(distance = newDistance, totalTravelKm = newTotal, lastEncounter = encounter, meditationActive = if (newChecks > oldChecks) false else s.meditationActive,
+    return s.copy(distance = newDistance, totalTravelKm = newTotal, lastEncounter = encounter, meditationActive = if (newChecks > oldChecks) false else s.meditationActive, warriorActive = if (newChecks > oldChecks) false else s.warriorActive,
         vigorActive = if (newChecks > oldChecks) false else s.vigorActive,
         quantumMode = if (newChecks > oldChecks) "" else s.quantumMode, encounters = s.encounters + if (!s.retreatActive && newChecks > oldChecks) 1 else 0, log = logs.take(100))
 }
@@ -1067,7 +1087,7 @@ private fun applyDamage(s: AppState, damage: Int, target: Int?): AppState = s.la
     if (remaining > 0) s.copy(lastEncounter = e.copy(remainingHp = remaining, enemyHp = hp),
         log = (listOf("${e.name} : $dealt dégâts, $remaining PV restants (${hp.count { it > 0 }} debout)") + s.log).take(100))
     else s.copy(character = s.character.copy(po = s.character.po + e.reward), lastEncounter = null,
-        meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false,
+        meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, warriorActive = false,
         log = (listOf("${e.name} vaincu(s), butin : ${e.reward} PO") + s.log).take(100))
 } ?: s
 
@@ -1081,7 +1101,7 @@ private fun removeOne(items: List<String>, name: String): List<String> {
 
 private fun skipEncounter(s: AppState): AppState = s.lastEncounter?.let { e ->
     if (!e.safe && e.context != "Ils n'ont rien vu.") return@let s
-    s.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, log = (listOf("Rencontre évitée ou pacifique : ${e.name}. Aucun butin ni retour obligatoire.") + s.log).take(100))
+    s.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, warriorActive = false, log = (listOf("Rencontre évitée ou pacifique : ${e.name}. Aucun butin ni retour obligatoire.") + s.log).take(100))
 } ?: s
 
 private fun useHunterAbility(s: AppState): AppState = s.lastEncounter?.let { e ->
@@ -1101,7 +1121,7 @@ private fun fleeEncounter(s: AppState, towardDestination: Boolean): AppState = s
     val acrobatForward = towardDestination && s.character.profileType == "advanced" && s.character.className == "Acrobate" && s.destinationKm > 0.0
     val returnDistance = if (acrobatForward) (s.destinationKm - s.distance).coerceAtLeast(0.0) else s.distance.coerceAtLeast(0.0)
     val start = if (acrobatForward) s.destination else s.character.location
-    s.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false,
+    s.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, warriorActive = false,
         retreatActive = returnDistance > 0.0, retreatOrigin = start,
         destination = start, destinationKm = returnDistance, distance = 0.0,
         log = (listOf("Fuite devant ${e.name} : ${if (acrobatForward) "destination choisie (Acrobate)" else "retour"} de ${"%.1f".format(returnDistance)} unité(s) vers $start, sans rencontre et sans butin. Exercices de contexte confirmés.") + s.log).take(100))
@@ -1127,13 +1147,14 @@ private fun saveState(context: Context, state: AppState) {
         put("unlockedClasses", JSONArray(c.unlockedClasses)); put("completedAchievements", JSONArray(c.completedAchievements))
     }
     val obj = JSONObject().apply {
-        put("schema", 16); put("character", character); put("distance", state.distance)
+        put("schema", 17); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("totalTravelKm", state.totalTravelKm)
         put("encounters", state.encounters); put("retreatActive", state.retreatActive); put("retreatOrigin", state.retreatOrigin)
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
         put("equippedWeapon", state.equippedWeapon); put("equippedSupport", state.equippedSupport); put("meditationActive", state.meditationActive)
         put("vigorActive", state.vigorActive); put("quantumMode", state.quantumMode); put("illusionActive", state.illusionActive)
+        put("abilityDay", state.abilityDay); put("scoutUses", state.scoutUses); put("warriorUsed", state.warriorUsed); put("warriorActive", state.warriorActive)
         put("quests", JSONArray(state.quests))
         state.lastEncounter?.let { e -> put("lastEncounter", JSONObject().apply {
             put("name", e.name); put("quantity", e.quantity); put("hp", e.hp)
@@ -1212,6 +1233,33 @@ private fun loadState(context: Context): AppState {
             equippedWeapon = obj.optString("equippedWeapon", ""), equippedSupport = obj.optString("equippedSupport", ""), meditationActive = obj.optBoolean("meditationActive", false),
             vigorActive = obj.optBoolean("vigorActive", false), quantumMode = obj.optString("quantumMode", ""), illusionActive = obj.optBoolean("illusionActive", false),
             log = strings("log", baseState.log), inventory = strings("inventory", baseState.inventory),
+            abilityDay = obj.optString("abilityDay", ""), scoutUses = obj.optInt("scoutUses", 0),
+            warriorUsed = obj.optBoolean("warriorUsed", false), warriorActive = obj.optBoolean("warriorActive", false),
             quests = strings("quests", baseState.quests))
     } catch (_: Exception) { AppState() }
 }
+
+// Limites quotidiennes calculées sur la date locale de l'appareil (mode hors ligne).
+private fun dailyState(s: AppState): AppState {
+    val today = java.time.LocalDate.now().toString()
+    return if (s.abilityDay == today) s else s.copy(abilityDay = today, scoutUses = 0, warriorUsed = false)
+}
+
+private fun planJourney(state: AppState, destination: String, km: Double, scout: Boolean): AppState {
+    val s = dailyState(state)
+    val allowed = scout && s.character.profileType == "advanced" && s.character.className == "Éclaireur" && s.scoutUses < 2
+    val effective = if (allowed) km / 2.0 else km
+    return s.copy(destination = destination, destinationKm = effective, distance = 0.0,
+        scoutUses = s.scoutUses + if (allowed) 1 else 0,
+        log = (listOf("Nouveau trajet vers $destination : ${"%.2f".format(effective)} km${if (allowed) " (Éclaireur : ${"%.2f".format(km)} km / 2, ${s.scoutUses + 1}/2 aujourd’hui)" else ""}.") + s.log).take(100))
+}
+
+private fun activateWarrior(state: AppState): AppState {
+    val s = dailyState(state)
+    if (s.character.profileType != "advanced" || s.character.className != "Guerrier" || s.lastEncounter == null || s.lastEncounter.safe || s.warriorUsed) return s
+    return s.copy(warriorUsed = true, warriorActive = true,
+        log = (listOf("Guerrier : Prière confirmée ; dégâts des attaques avec arme ×2 pendant cette rencontre (1 utilisation quotidienne).") + s.log).take(100))
+}
+
+private fun warriorDamage(state: AppState, damage: Int): Int =
+    if (state.warriorActive) (damage.toLong() * 2).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else damage
