@@ -127,3 +127,11 @@ Les armes marquées à distance ciblent un adversaire vivant choisi par le joueu
 - Capacité de classe affichée si renseignée ; automatisation future.
 - Limites : les effets immédiats des monstres et la fuite spéciale de l'Acrobate restent manuels ; le trajet de retour utilise la distance déjà parcourue du trajet en cours.
 - Les effets des statistiques sur le combat seront étudiés à la fin du développement comme règles maison, non ajoutés ici.
+
+## v1.19.0 — Barde solo (règle maison)
+- Deux demi-trajets par jour, au lieu d'un seul.
+- Choix avant chaque demi-trajet : **prudent** (rencontres et butin normaux) ou **audacieux** (quantité des rencontres ×2 et butin de ces rencontres ×2,5 par rapport à la quantité initiale, soit +25 % du butin des adversaires doublés).
+- Arrondi du butin à l'entier inférieur ; rencontres à quantité fixe non doublées et sans majoration.
+- La majoration ne s'applique qu'aux récompenses obtenues après victoire ; fuite et évitement ne rapportent rien.
+- Sauvegarde `bardUses`, migration de l'ancien `bardUsed` ; compteur remis à zéro au changement de date locale. Les trajets en cours conservent leur mode audacieux éventuel.
+- Règle maison distincte des règles officielles du livre.
