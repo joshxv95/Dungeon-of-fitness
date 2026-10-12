@@ -1,0 +1,6 @@
+Dungeon of Fitness 1.18.0
+- Barde : distance divisée par deux et quantité doublée pendant le trajet, une fois par jour.
+- Mage : modification +/-1 du dé de contexte avant les attaques.
+- Moine : modification +/-1 ou +/-2 du dé de contexte après confirmation d'une Prière.
+- Limite explicite : modification du dé de type ou de quantité non encore automatisée.
+- Sauvegardes compatibles avec 1.17.
