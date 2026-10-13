@@ -1,3 +1,11 @@
+## 1.26.0 — Compagnons : Oracle, Paladin/Quêteur et Barde
+- **Oracle de Tasmina** (livre p. 73) : Prière confirmée avant un combat (dégâts des attaques ×2 pour celui-ci) OU Prière confirmée avant le départ (dégâts ×2 pendant les combats du voyage). Ne se cumule pas deux fois avec lui-même. Multiplicateur appliqué aux exercices d'armes et à la saisie manuelle de dégâts bruts ; pas aux effets des potions dont les dégâts fixes ne sont pas des attaques. L'effet de combat disparaît à la résolution/fuite, celui du voyage à l'arrivée/fuite.
+- **Le Paladin et le Quêteur** (p. 129) : après confirmation d'une Prière avant départ, dé de quantité −2 pour une rencontre au choix du voyage (utilisation volontaire avant le combat). PV, quantité et PO recalculés. Rencontres à quantité fixe exclues. Convention visible : le résultat du dé est plafonné à un minimum de 1, car le livre ne détaille pas les résultats nuls ou négatifs. L'utilisation ne se recharge qu'au prochain départ accompagné d'une nouvelle Prière.
+- **Barde compagnon** (p. 113) : en confirmant l'écoute de musique au départ, distance divisée par deux pour ce voyage. Pouvoir indépendant de la classe Barde et sans compteur quotidien ; pas de cumul de demi-distances avec Éclaireur ou Barde joueur (convention d'adaptation). Compatible avec les tronçons guidés.
+- Sauvegarde additive (schéma 25), indicateurs de pouvoirs actifs, journal, nettoyage à l'arrivée ou à la fuite. Pas de modifications des règles déjà validées.
+- Ajout de `CompanionRules.kt` (calculs purs réutilisables) et de `tests/CompanionRulesTest.kt` vérifié localement avec le compilateur Kotlin. Même signature et applicationId, versionCode 129.
+- Les autres effets narratifs spéciaux et le Shaker sombre restent à appliquer en lisant le livre, sans interprétation arbitraire.
+
 ## 1.25.0 — Compagnons, conséquences et butin des chapitres
 - Nouveau carnet des 8 compagnons cités explicitement dans la campagne (livre p. 73, 75, 76, 93, 113, 117, 119, 129), accessible depuis Aventure.
 - Recrutement calculé à partir des chapitres que le joueur a confirmé terminés, avec confirmation manuelle pour les sauvegardes anciennes et retrait manuel en cas d'événement narratif. Les compagnons disparaissent du registre si leur chapitre est dévalidé (sauf recrutement manuel indépendant).

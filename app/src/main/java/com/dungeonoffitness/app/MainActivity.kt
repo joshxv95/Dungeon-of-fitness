@@ -241,6 +241,12 @@ private data class AppState(
     val dismissedCompanions: List<String> = emptyList(),
     val fairyTeleportUsed: Boolean = false,
     val claimedChapterLoot: List<String> = emptyList(),
+    // Pouvoirs officiels des compagnons (p. 73, 113 et 129).
+    val oracleJourneyActive: Boolean = false,
+    val oracleCombatActive: Boolean = false,
+    val paladinJourneyArmed: Boolean = false,
+    val paladinJourneyUsed: Boolean = false,
+    val companionBardJourney: Boolean = false,
     val quests: List<String> = listOf("Créer et suivre votre profil", "Tenir votre journal d'entraînement")
 )
 
@@ -282,7 +288,7 @@ fun DungeonApp() {
                         onOpenCompanions = { tab = "companions" },
                         onTravel = { km -> update(travel(state, km)) },
                         onWarrior = { update(activateWarrior(state)) },
-                        onResolve = { damage -> update(resolve(state, damage)) },
+                        onResolve = { damage -> update(resolve(state, warriorDamage(state, damage))) },
                         onWeaponAttack = { name, count, pattesUsed, target, supportConfirmed ->
                             val weapon = weapons.firstOrNull { it.name == name }
                             if (weapon != null && name in state.inventory && count > 0)
@@ -303,6 +309,8 @@ fun DungeonApp() {
                         onFlee = { towardDestination -> update(fleeEncounter(state, towardDestination)) },
                         onHunt = { update(useHunterAbility(state)) },
                         onBulker = { update(useBulkerCompanion(state)) },
+                        onOracleCombat = { update(activateOracleCombat(state)) },
+                        onPaladin = { update(usePaladinQuantity(state)) },
                         onFairyTeleport = { target -> update(useFairyTeleport(state, target)) },
                         onMystic = { kind, dieIndex, delta -> update(useMysticDie(state, kind, dieIndex, delta)) },
                         onCavalier = { place -> update(useCavalierAbility(state, place)) },
@@ -314,7 +322,7 @@ fun DungeonApp() {
                         onUsePersuasion = {
                             val e = state.lastEncounter
                             if (e != null && "Shaker persuasion" in state.inventory)
-                                update(state.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, warriorActive = false,
+                                update(state.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, warriorActive = false, oracleCombatActive = false,
                                     inventory = removeOne(state.inventory, "Shaker persuasion"),
                                     log = (listOf("Shaker persuasion consommé : combat contre ${e.name} ignoré, sans récompense.") + state.log).take(100)))
                         },
@@ -353,8 +361,8 @@ fun DungeonApp() {
                                 }
                             }
                         },
-                        onPlan = { destination, km, scout, bardAudacious, followMap ->
-                            update(planJourney(state, destination, km, scout, bardAudacious, followMap))
+                        onPlan = { destination, km, scout, bardAudacious, followMap, bardMusic, oraclePrayer, paladinPrayer ->
+                            update(planJourney(state, destination, km, scout, bardAudacious, followMap, bardMusic, oraclePrayer, paladinPrayer))
                         },
                         onCheckpoint = { update(confirmRouteCheckpoint(state)) },
                         onArrive = {
@@ -362,6 +370,8 @@ fun DungeonApp() {
                                 update(state.copy(character = state.character.copy(location = state.destination),
                                     visitedPlaces = (state.visitedPlaces + state.character.location + state.destination).distinct(),
                                     destination = "", destinationKm = 0.0, distance = 0.0, bardJourney = false, retreatActive = false, retreatOrigin = "",
+                                    oracleJourneyActive = false, oracleCombatActive = false,
+                                    paladinJourneyArmed = false, paladinJourneyUsed = false, companionBardJourney = false,
                                     routeStops = emptyList(), routeLegKm = emptyList(), routeLegIndex = 0,
                                     log = (listOf("Arrivée à ${state.destination}. Chapitre à valider selon le livre.") + state.log).take(100)))
                             }
@@ -564,14 +574,14 @@ private val storyChapters = listOf(
 // Certaines capacités demandent une action hors téléphone ; elles sont documentées mais pas simulées.
 private data class StoryCompanion(val name: String, val source: String, val ability: String, val automatic: Boolean)
 private val storyCompanions = listOf(
-    StoryCompanion("Oracle de Tasmina", "Tique-Couenne · p. 73", "Après une Prière à votre divinité : dégâts ×2 pour un affrontement, ou quitter un lieu pour bénéficier de l'effet pendant un déplacement.", false),
+    StoryCompanion("Oracle de Tasmina", "Tique-Couenne · p. 73", "Après une Prière à votre divinité : dégâts ×2 pour un affrontement, ou quitter un lieu pour bénéficier de l'effet pendant un déplacement.", true),
     StoryCompanion("Igor", "Nosferathon · p. 75", "Donne accès à la Salle secrète de l’Oasis ; aucun pouvoir de combat n'est indiqué.", true),
     StoryCompanion("Bulker Fruité", "Omega Beach · p. 76", "Neutralise un adversaire en discutant avec lui pendant un voyage entre deux zones.", true),
     StoryCompanion("La Fée", "Forêt de Brise Mollets · p. 93", "Téléporte une fois dans toute la campagne vers une zone accessible de votre choix.", true),
-    StoryCompanion("Barde", "L’arène · p. 113", "Divise par deux une distance entre zones lorsque vous écoutez de la musique ; non cumulée automatiquement avec les pouvoirs de classe.", false),
+    StoryCompanion("Barde", "L’arène · p. 113", "Divise par deux une distance entre zones lorsque vous écoutez de la musique ; non cumulée avec les raccourcis de classe (convention explicite).", true),
     StoryCompanion("Le Gnome Cartographe", "Île des poids guidés · p. 117", "Donne accès à la Caverne des nuages sans fin.", true),
     StoryCompanion("Le Troll Conteur", "Antre de Mollefesse · p. 119", "Multiplie par deux la fréquence des rencontres (un jet tous les 3 km plutôt que 6).", true),
-    StoryCompanion("Le Paladin et le Quêteur", "Ruines du Golem · p. 129", "Après une Prière avant de quitter une zone, retirez 2 au dé de quantité d'une rencontre choisie pendant le prochain voyage.", false)
+    StoryCompanion("Le Paladin et le Quêteur", "Ruines du Golem · p. 129", "Après une Prière avant de quitter une zone, retirez 2 au dé de quantité d'une rencontre choisie pendant le prochain voyage.", true)
 )
 private fun availableCompanions(s: AppState): Set<String> =
     (s.manualCompanions + storyChapters.filter { it.title in s.completedChapters }.flatMap { it.companions })
@@ -582,6 +592,10 @@ private fun setCompanionPresence(s: AppState, name: String, acquired: Boolean): 
     val manual = if (acquired) (s.manualCompanions + name).distinct() else s.manualCompanions - name
     val dismissed = if (acquired) s.dismissedCompanions - name else (s.dismissedCompanions + name).distinct()
     return s.copy(manualCompanions = manual, dismissedCompanions = dismissed,
+        oracleJourneyActive = if (!acquired && name == "Oracle de Tasmina") false else s.oracleJourneyActive,
+        oracleCombatActive = if (!acquired && name == "Oracle de Tasmina") false else s.oracleCombatActive,
+        paladinJourneyArmed = if (!acquired && name == "Le Paladin et le Quêteur") false else s.paladinJourneyArmed,
+        companionBardJourney = if (!acquired && name == "Barde") false else s.companionBardJourney,
         log = (listOf("Compagnon $name : ${if (acquired) "présence confirmée d'après le livre" else "retiré de l'équipe"} (suivi manuel).") + s.log).take(100))
 }
 
@@ -602,7 +616,7 @@ private fun useBulkerCompanion(s: AppState): AppState {
     val hp = encounterHp(e).dropLast(1)
     val remaining = hp.size
     if (remaining == 0) return s.copy(lastEncounter = null, meditationActive = false, vigorActive = false,
-        quantumMode = "", illusionActive = false, warriorActive = false,
+        quantumMode = "", illusionActive = false, warriorActive = false, oracleCombatActive = false,
         log = (listOf("Bulker Fruité a neutralisé l'unique adversaire en discutant avec lui : rencontre résolue sans combat ni butin (p. 76).") + s.log).take(100))
     val reward = (e.reward.toLong() * remaining / e.quantity).toInt()
     return s.copy(lastEncounter = e.copy(quantity = remaining, remainingHp = hp.sum(), enemyHp = hp,
@@ -664,7 +678,7 @@ private fun confirmChapterAccess(s: AppState, title: String, acquired: Boolean):
                     Text("${if (present) "✅" else "○"} ${companion.name}", style = MaterialTheme.typography.titleMedium)
                     Text(companion.source, style = MaterialTheme.typography.labelMedium, color = Color(0xFFEBC582))
                     Text(companion.ability)
-                    Text(if (companion.automatic) "Recrutement et effet indiqué suivis dans la v1.25." else "Effet à appliquer manuellement selon le livre.", style = MaterialTheme.typography.bodySmall)
+                    Text(if (companion.automatic) "Pouvoir ou effet suivi dans la version actuelle." else "Effet à appliquer manuellement selon le livre.", style = MaterialTheme.typography.bodySmall)
                     if (present) {
                         OutlinedButton(onClick = { onCompanionChange(companion.name, false) }) { Text("Retirer du groupe") }
                     } else {
@@ -675,7 +689,7 @@ private fun confirmChapterAccess(s: AppState, title: String, acquired: Boolean):
                 }
             }
         }
-        item { Text("Les capacités de l'Oracle, du Barde compagnon et du Paladin/Quêteur sont détaillées, mais pas encore automatisées. Les objets et PO non explicitement garantis ne sont pas créés.", style = MaterialTheme.typography.bodySmall) }
+        item { Text("✨ Oracle : Prière avant départ = dégâts ×2 pendant le voyage ; Prière avant affrontement = dégâts ×2 pour le combat. 🎵 Barde compagnon : musique confirmée avant départ, distance ÷2. 🛡️ Paladin/Quêteur : Prière avant départ, dé de quantité −2 pour une rencontre choisie lors de ce voyage. Aucun cumul de deux raccourcis.", style = MaterialTheme.typography.bodySmall) }
     }
 }
 
@@ -884,13 +898,15 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
     onFlee: (Boolean) -> Unit,
     onHunt: () -> Unit,
     onBulker: () -> Unit,
+    onOracleCombat: () -> Unit,
+    onPaladin: () -> Unit,
     onFairyTeleport: (String) -> Unit,
     onMystic: (String, Int, Int) -> Unit,
     onCavalier: (String) -> Unit,
     onMeditate: () -> Unit,
     onUsePersuasion: () -> Unit,
     onUseConsumable: (String, String) -> Unit,
-    onPlan: (String, Double, Boolean, Boolean, Boolean) -> Unit,
+    onPlan: (String, Double, Boolean, Boolean, Boolean, Boolean, Boolean, Boolean) -> Unit,
     onCheckpoint: () -> Unit,
     onArrive: () -> Unit
 ) {
@@ -908,6 +924,10 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
     var teleportTarget by remember(state.character.location) { mutableStateOf(mapNeighbors(state.character.location).firstOrNull()?.first.orEmpty()) }
     var scoutChosen by remember { mutableStateOf(false) }
     var bardAudacious by remember { mutableStateOf(false) }
+    var companionMusic by remember(state.character.location) { mutableStateOf(false) }
+    var oraclePrayerJourney by remember(state.character.location) { mutableStateOf(false) }
+    var paladinPrayerJourney by remember(state.character.location) { mutableStateOf(false) }
+    var oracleCombatPrayer by remember(state.lastEncounter?.roll, state.lastEncounter?.contextDie) { mutableStateOf(false) }
     var mysticKind by remember(state.lastEncounter?.roll, state.lastEncounter?.name) { mutableStateOf("Contexte") }
     var selectedTypeDie by remember(state.lastEncounter?.roll, state.lastEncounter?.name) { mutableIntStateOf(0) }
     var monkPrayerConfirmed by remember(state.lastEncounter?.roll, state.lastEncounter?.contextDie) { mutableStateOf(false) }
@@ -1082,14 +1102,39 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                 }
                 if (scoutChosen && available) Text("Distance à parcourir : ${"%.2f".format((distanceInput.replace(',','.').toDoubleOrNull() ?: 0.0) / 2)} km ${if (bard) "(règle maison)" else "(livre p. 41)"}")
             }
+            if ("Barde" in availableCompanions(state)) item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = companionMusic, enabled = !scoutChosen, onCheckedChange = { companionMusic = it })
+                    Text("🎵 Barde compagnon (p. 113) : j'écouterai de la musique pendant ce trajet (distance ÷2).")
+                }
+                if (scoutChosen && companionMusic) Text("Deux raccourcis ne se cumulent pas : le pouvoir de classe prévaut.", style = MaterialTheme.typography.bodySmall)
+                if (companionMusic && !scoutChosen) Text("Distance réelle : ${"%.2f".format((distanceInput.replace(',','.').toDoubleOrNull() ?: 0.0) / 2)} $unit")
+            }
+            if ("Oracle de Tasmina" in availableCompanions(state)) item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = oraclePrayerJourney, onCheckedChange = { oraclePrayerJourney = it })
+                    Text("✨ Oracle (p. 73) : j'ai fait la Prière à ma divinité avant de partir ; dégâts ×2 pendant le déplacement.")
+                }
+            }
+            if ("Le Paladin et le Quêteur" in availableCompanions(state)) item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = paladinPrayerJourney, onCheckedChange = { paladinPrayerJourney = it })
+                    Text("🛡️ Paladin et Quêteur (p. 129) : j'ai fait une Prière avant de partir ; dé de quantité −2 lors d'une rencontre choisie de ce voyage.")
+                }
+            }
             item { Button(enabled = (distanceInput.replace(',','.').toDoubleOrNull()?.let { it.isFinite() && it > 0.0 } == true) &&
                 selectedPlace != state.character.location && !pending,
                 onClick = {
-                    onPlan(selectedPlace, distanceInput.replace(',','.').toDouble(), scoutChosen, scoutChosen && bardAudacious, followMap)
+                    onPlan(selectedPlace, distanceInput.replace(',','.').toDouble(), scoutChosen, scoutChosen && bardAudacious, followMap,
+                        companionMusic, oraclePrayerJourney, paladinPrayerJourney)
                     scoutChosen = false; bardAudacious = false; followMap = false
+                    companionMusic = false; oraclePrayerJourney = false; paladinPrayerJourney = false
                 },
                 modifier = Modifier.fillMaxWidth()) { Text("Démarrer le trajet") } }
         } else {
+            if (state.companionBardJourney) item { Text("🎵 Barde compagnon : musique confirmée, trajet à demi-distance.", color = Color(0xFFEBC582)) }
+            if (state.oracleJourneyActive) item { Text("✨ Oracle de Tasmina : dégâts ×2 pendant ce déplacement.", color = Color(0xFFEBC582)) }
+            if (state.paladinJourneyArmed) item { Text(if (state.paladinJourneyUsed) "🛡️ Paladin/Quêteur : pouvoir de ce voyage déjà utilisé." else "🛡️ Paladin/Quêteur : dé de quantité −2 encore disponible.", color = Color(0xFFEBC582)) }
             item { Text("Destination : ${state.destination} · ${"%.1f".format(state.destinationKm)} $unit") }
             item { LinearProgressIndicator(progress = { (state.distance / state.destinationKm).coerceIn(0.0,1.0).toFloat() }, modifier = Modifier.fillMaxWidth()) }
             item { Text("${"%.1f".format(state.distance)} / ${"%.1f".format(state.destinationKm)} $unit") }
@@ -1214,6 +1259,27 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                         } }
                     }
                     Text("Une modification par rencontre (convention d’interface). Les rencontres hors Fitland restent ignorées comme dans la génération actuelle.", style = MaterialTheme.typography.bodySmall)
+                }
+                if (state.paladinJourneyArmed && !e.safe) {
+                    if (state.paladinJourneyUsed) Text("🛡️ Paladin/Quêteur : pouvoir de quantité déjà utilisé ce voyage.")
+                    else if (e.quantityDie in 1..6 && !e.effect.contains("quantité fixe", ignoreCase = true) &&
+                        encounterHp(e).all { it == e.hp } && !e.mysticUsed && !e.hunterUsed && !e.bulkerUsed && !state.illusionActive) {
+                        Text("🛡️ Paladin/Quêteur (p. 129) : votre Prière avant départ permet de diminuer de 2 le dé de quantité de CETTE rencontre. ${e.quantityDie} → ${(e.quantityDie - 2).coerceAtLeast(1)}. Un seul usage durant ce voyage.")
+                        if (e.quantityDie <= 2) Text("Convention : minimum 1 sur le dé (le livre ne précise pas le cas 0 ou négatif).", style = MaterialTheme.typography.bodySmall)
+                        OutlinedButton(onClick = onPaladin, modifier = Modifier.fillMaxWidth()) { Text("Utiliser Paladin/Quêteur : quantité −2") }
+                    } else Text("Paladin/Quêteur : indisponible pour une rencontre fixe ou après modification/attaque.", style = MaterialTheme.typography.bodySmall)
+                }
+                if ("Oracle de Tasmina" in availableCompanions(state) && !e.safe) {
+                    if (state.oracleJourneyActive) Text("✨ Oracle de Tasmina (p. 73) : Prière avant départ, dégâts des attaques ×2 déjà actifs.")
+                    else if (state.oracleCombatActive) Text("✨ Oracle de Tasmina : dégâts ×2 actifs pour cet affrontement.")
+                    else if (encounterHp(e).all { it == e.hp }) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = oracleCombatPrayer, onCheckedChange = { oracleCombatPrayer = it })
+                            Text("J'ai effectué une Prière à ma divinité avant cet affrontement (p. 73).")
+                        }
+                        OutlinedButton(enabled = oracleCombatPrayer, onClick = { onOracleCombat(); oracleCombatPrayer = false },
+                            modifier = Modifier.fillMaxWidth()) { Text("✨ Activer l'Oracle : dégâts ×2 pour ce combat") }
+                    } else Text("Oracle : la Prière doit être confirmée avant la première attaque.", style = MaterialTheme.typography.bodySmall)
                 }
                 if (state.character.profileType == "advanced" && state.character.className == "Chasseur" && !e.safe) {
                     val unhurt = encounterHp(e).all { it == e.hp }
@@ -1350,9 +1416,12 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                     OutlinedTextField(value = damageInput, onValueChange = { damageInput = it.filter(Char::isDigit) },
                         label = { Text("Dégâts infligés avec les objets du livre (PV)") },
                         modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    Button(enabled = (damageInput.toIntOrNull() ?: 0) > 0,
-                        onClick = { onResolve(damageInput.toInt()); damageInput = "" },
-                        modifier = Modifier.fillMaxWidth()) { Text("Enregistrer les dégâts") }
+                    val rawDamage = damageInput.toIntOrNull() ?: 0
+                    if (state.oracleCombatActive || state.oracleJourneyActive || state.warriorActive)
+                        Text("Les multiplicateurs Oracle et Guerrier s'appliquent automatiquement aux dégâts BRUTS saisis ici.", style = MaterialTheme.typography.bodySmall)
+                    Button(enabled = rawDamage > 0,
+                        onClick = { onResolve(rawDamage); damageInput = "" },
+                        modifier = Modifier.fillMaxWidth()) { Text("Enregistrer ${warriorDamage(state, rawDamage)} dégâts") }
                 }
                 if (e.safe || e.context == "Ils n'ont rien vu.") {
                     OutlinedButton(onClick = onSkip, modifier = Modifier.fillMaxWidth()) {
@@ -1791,6 +1860,9 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         }
         items(state.log) { Text(it) }
         item { Text("🤝 Compagnons présents : ${availableCompanions(state).joinToString().ifEmpty { "aucun" }}") }
+        if (state.oracleJourneyActive || state.oracleCombatActive || state.paladinJourneyArmed || state.companionBardJourney) item {
+            Text("Effets de compagnons : ${listOfNotNull(if (state.oracleJourneyActive) "Oracle voyage ×2" else if (state.oracleCombatActive) "Oracle combat ×2" else null, if (state.paladinJourneyArmed) "Paladin/Quêteur ${if (state.paladinJourneyUsed) "consommé" else "disponible"}" else null, if (state.companionBardJourney) "Barde musique ÷2" else null).joinToString(" · ")}")
+        }
         item { Text("Quêtes") }
         items(state.quests) { Text("□ $it") }
     }
@@ -1925,7 +1997,7 @@ private fun applyDamage(s: AppState, damage: Int, target: Int?): AppState = s.la
     if (remaining > 0) s.copy(lastEncounter = e.copy(remainingHp = remaining, enemyHp = hp),
         log = (listOf("${e.name} : $dealt dégâts, $remaining PV restants (${hp.count { it > 0 }} debout)") + s.log).take(100))
     else s.copy(character = s.character.copy(po = s.character.po + e.reward), lastEncounter = null,
-        meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, warriorActive = false,
+        meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, warriorActive = false, oracleCombatActive = false,
         log = (listOf("${e.name} vaincu(s), butin : ${e.reward} PO") + s.log).take(100))
 } ?: s
 
@@ -1939,7 +2011,7 @@ private fun removeOne(items: List<String>, name: String): List<String> {
 
 private fun skipEncounter(s: AppState): AppState = s.lastEncounter?.let { e ->
     if (!e.safe && e.context != "Ils n'ont rien vu.") return@let s
-    s.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, warriorActive = false, log = (listOf("Rencontre évitée ou pacifique : ${e.name}. Aucun butin ni retour obligatoire.") + s.log).take(100))
+    s.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, warriorActive = false, oracleCombatActive = false, log = (listOf("Rencontre évitée ou pacifique : ${e.name}. Aucun butin ni retour obligatoire.") + s.log).take(100))
 } ?: s
 
 private fun useHunterAbility(s: AppState): AppState = s.lastEncounter?.let { e ->
@@ -1961,8 +2033,10 @@ private fun fleeEncounter(s: AppState, towardDestination: Boolean): AppState = s
     val returnDistance = if (acrobatForward) (s.destinationKm - s.distance).coerceAtLeast(0.0)
         else (s.distance - currentStageStart).coerceAtLeast(0.0)
     val start = if (acrobatForward) s.destination else s.character.location
-    s.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, warriorActive = false,
+    s.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, warriorActive = false, oracleCombatActive = false,
         retreatActive = returnDistance > 0.0, retreatOrigin = start,
+        oracleJourneyActive = false, paladinJourneyArmed = false, paladinJourneyUsed = false,
+        companionBardJourney = false,
         destination = start, destinationKm = returnDistance, distance = 0.0,
         routeStops = emptyList(), routeLegKm = emptyList(), routeLegIndex = 0,
         log = (listOf("Fuite devant ${e.name} : ${if (acrobatForward) "destination choisie (Acrobate)" else "retour"} de ${"%.1f".format(returnDistance)} unité(s) vers $start, sans rencontre et sans butin. Exercices de contexte confirmés.") + s.log).take(100))
@@ -1988,12 +2062,15 @@ private fun saveState(context: Context, state: AppState) {
         put("unlockedClasses", JSONArray(c.unlockedClasses)); put("completedAchievements", JSONArray(c.completedAchievements))
     }
     val obj = JSONObject().apply {
-        put("schema", 24); put("character", character); put("distance", state.distance)
+        put("schema", 25); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("totalTravelKm", state.totalTravelKm)
         put("encounters", state.encounters); put("retreatActive", state.retreatActive); put("retreatOrigin", state.retreatOrigin)
         put("routeStops", JSONArray(state.routeStops)); put("routeLegKm", JSONArray(state.routeLegKm)); put("routeLegIndex", state.routeLegIndex)
         put("visitedPlaces", JSONArray(state.visitedPlaces)); put("completedChapters", JSONArray(state.completedChapters)); put("manualChapterAccess", JSONArray(state.manualChapterAccess)); put("manualCompanions", JSONArray(state.manualCompanions)); put("dismissedCompanions", JSONArray(state.dismissedCompanions)); put("fairyTeleportUsed", state.fairyTeleportUsed); put("claimedChapterLoot", JSONArray(state.claimedChapterLoot))
+        put("oracleJourneyActive", state.oracleJourneyActive); put("oracleCombatActive", state.oracleCombatActive)
+        put("paladinJourneyArmed", state.paladinJourneyArmed); put("paladinJourneyUsed", state.paladinJourneyUsed)
+        put("companionBardJourney", state.companionBardJourney)
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
         put("equippedWeapon", state.equippedWeapon); put("equippedSupport", state.equippedSupport); put("meditationActive", state.meditationActive)
         put("vigorActive", state.vigorActive); put("quantumMode", state.quantumMode); put("illusionActive", state.illusionActive)
@@ -2083,6 +2160,11 @@ private fun loadState(context: Context): AppState {
             manualCompanions = strings("manualCompanions", emptyList()).filter { name -> storyCompanions.any { it.name == name } },
             dismissedCompanions = strings("dismissedCompanions", emptyList()).filter { name -> storyCompanions.any { it.name == name } },
             fairyTeleportUsed = obj.optBoolean("fairyTeleportUsed", false),
+            oracleJourneyActive = obj.optBoolean("oracleJourneyActive", false),
+            oracleCombatActive = obj.optBoolean("oracleCombatActive", false),
+            paladinJourneyArmed = obj.optBoolean("paladinJourneyArmed", false),
+            paladinJourneyUsed = obj.optBoolean("paladinJourneyUsed", false),
+            companionBardJourney = obj.optBoolean("companionBardJourney", false),
             claimedChapterLoot = strings("claimedChapterLoot", emptyList()).filter { title -> storyChapters.any { it.title == title } },
             manualChapterAccess = strings("manualChapterAccess", emptyList()).filter { title -> storyChapters.any { it.title == title && it.restricted } },
             equippedWeapon = obj.optString("equippedWeapon", ""), equippedSupport = obj.optString("equippedSupport", ""), meditationActive = obj.optBoolean("meditationActive", false),
@@ -2100,33 +2182,40 @@ private fun dailyState(s: AppState): AppState {
     return if (s.abilityDay == today) s else s.copy(abilityDay = today, scoutUses = 0, warriorUsed = false, bardUses = 0, cavalierUsed = false)
 }
 
-private fun planJourney(state: AppState, destination: String, km: Double, scout: Boolean, bardAudacious: Boolean, followMap: Boolean): AppState {
+private fun planJourney(state: AppState, destination: String, km: Double, scout: Boolean, bardAudacious: Boolean, followMap: Boolean,
+    companionMusic: Boolean = false, oraclePrayer: Boolean = false, paladinPrayer: Boolean = false): AppState {
     val s = dailyState(state)
     if (!km.isFinite() || km <= 0.0 || destination == s.character.location || destination !in fitlandPlaces || s.lastEncounter != null || s.destinationKm > 0.0) return s
     val allowed = scout && s.character.profileType == "advanced" && s.character.className == "Éclaireur" && s.scoutUses < 2
     val bard = scout && s.character.profileType == "advanced" && s.character.className == "Barde" && s.bardUses < 2
-    val effective = if (allowed || bard) km / 2.0 else km
+    val bardCompanion = companionMusic && !allowed && !bard && "Barde" in availableCompanions(s)
+    val effective = CompanionRules.journeyDistance(km, allowed || bard || bardCompanion)
     val audacious = bard && bardAudacious
+    val oracle = oraclePrayer && "Oracle de Tasmina" in availableCompanions(s)
+    val paladin = paladinPrayer && "Le Paladin et le Quêteur" in availableCompanions(s)
     val route = if (followMap) mapRoute(s.character.location, destination)?.takeIf { kotlin.math.abs(it.km - km) < 0.00001 } else null
     val stops = route?.places ?: emptyList()
     val legs = if (route != null) route.places.zipWithNext { a, b ->
-        (mapNeighbors(a).firstOrNull { it.first == b }?.second ?: 0).toDouble() * (if (allowed || bard) 0.5 else 1.0)
+        (mapNeighbors(a).firstOrNull { it.first == b }?.second ?: 0).toDouble() * (if (allowed || bard || bardCompanion) 0.5 else 1.0)
     } else emptyList()
     val guided = legs.isNotEmpty() && legs.all { it > 0.0 } && kotlin.math.abs(legs.sum() - effective) < 0.00001
     val note = when {
         allowed -> " (Éclaireur : demi-distance, ${s.scoutUses + 1}/2 aujourd’hui)"
         audacious -> " (Barde, règle maison : demi-distance ${s.bardUses + 1}/2 ; mode audacieux, quantité ×2, butin ×2,5)"
         bard -> " (Barde, règle maison : demi-distance ${s.bardUses + 1}/2 ; mode prudent, rencontres normales)"
+        bardCompanion -> " (Barde compagnon : musique, demi-distance, p. 113)"
         else -> ""
     }
     return s.copy(destination = destination, destinationKm = effective, distance = 0.0,
         scoutUses = s.scoutUses + if (allowed) 1 else 0,
         bardUses = s.bardUses + if (bard) 1 else 0,
-        bardJourney = audacious,
+        bardJourney = audacious, companionBardJourney = bardCompanion,
+        oracleJourneyActive = oracle, oracleCombatActive = false,
+        paladinJourneyArmed = paladin, paladinJourneyUsed = false,
         routeStops = if (guided) stops else emptyList(),
         routeLegKm = if (guided) legs else emptyList(),
         routeLegIndex = 0,
-        log = (listOf("Nouveau trajet vers $destination : ${"%.2f".format(effective)} km$note${if (guided) " · ${legs.size} étape(s) guidée(s), sans validation des chapitres." else " · suivi manuel."}") + s.log).take(100))
+        log = (listOf("Nouveau trajet vers $destination : ${"%.2f".format(effective)} km$note${if (guided) " · ${legs.size} étape(s) guidée(s), sans validation des chapitres." else " · suivi manuel."}${if (oracle) " · Oracle : Prière avant départ, dégâts ×2 durant le trajet." else ""}${if (paladin) " · Paladin/Quêteur : Prière avant départ, dé −2 disponible pour une rencontre." else ""}") + s.log).take(100))
 }
 
 private fun activateWarrior(state: AppState): AppState {
@@ -2136,8 +2225,38 @@ private fun activateWarrior(state: AppState): AppState {
         log = (listOf("Guerrier : Prière confirmée ; dégâts des attaques avec arme ×2 pendant cette rencontre (1 utilisation quotidienne).") + s.log).take(100))
 }
 
-private fun warriorDamage(state: AppState, damage: Int): Int =
-    if (state.warriorActive) (damage.toLong() * 2).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else damage
+private fun warriorDamage(state: AppState, damage: Int): Int {
+    return CompanionRules.attackDamage(damage, state.warriorActive, state.oracleJourneyActive || state.oracleCombatActive)
+}
+
+// P. 73 : Prière avant l'affrontement, puissance pour une seule rencontre.
+// Si une Prière avait déjà été validée avant départ, pas de second ×2 cumulatif de l'Oracle.
+private fun activateOracleCombat(s: AppState): AppState {
+    val e = s.lastEncounter ?: return s
+    if (e.safe || "Oracle de Tasmina" !in availableCompanions(s) ||
+        s.oracleJourneyActive || s.oracleCombatActive || encounterHp(e).any { it != e.hp }) return s
+    return s.copy(oracleCombatActive = true,
+        log = (listOf("Oracle de Tasmina (p. 73) : Prière confirmée avant affrontement ; dégâts des attaques ×2 jusqu'à la fin de ce combat.") + s.log).take(100))
+}
+
+// P. 129 : dé de quantité −2 sur UNE rencontre choisie pendant le prochain voyage.
+// Convention explicitée : résultat minimum de 1 pour garder une quantité valide.
+private fun usePaladinQuantity(s: AppState): AppState {
+    val e = s.lastEncounter ?: return s
+    if (!s.paladinJourneyArmed || s.paladinJourneyUsed || s.destinationKm <= 0.0 ||
+        "Le Paladin et le Quêteur" !in availableCompanions(s) || e.safe ||
+        e.quantityDie !in 1..6 || e.effect.contains("quantité fixe", ignoreCase = true) ||
+        e.hunterUsed || e.mysticUsed || e.bulkerUsed || s.illusionActive ||
+        encounterHp(e).any { it != e.hp }) return s
+    val afterDie = CompanionRules.paladinDie(e.quantityDie)
+    val qty = CompanionRules.enemyCount(afterDie, e.roll, s.bardJourney)
+    val rule = encounterRules.getOrNull(e.roll - 7) ?: return s
+    val reward = CompanionRules.reward(rule.reward, qty, s.bardJourney)
+    return s.copy(lastEncounter = e.copy(quantityDie = afterDie, quantity = qty, initialQuantity = qty,
+        remainingHp = qty * e.hp, enemyHp = List(qty) { e.hp }, reward = reward),
+        paladinJourneyUsed = true,
+        log = (listOf("Paladin/Quêteur (p. 129) : dé de quantité ${e.quantityDie} − 2 → $afterDie ; $qty adversaire(s), $reward PO. Pouvoir consommé pour ce voyage.${if (e.quantityDie <= 2) " Minimum 1 (convention d'application)." else ""}") + s.log).take(100))
+}
 
 // Livre p. 41 : téléportation une fois par jour, UNIQUEMENT sur un lien direct
 // du graphe transcrit de la carte officielle p. 51 (aucun contrôle manuel contournable).
@@ -2193,7 +2312,8 @@ private fun useMysticDie(state: AppState, kind: String, dieIndex: Int, delta: In
             val rule = encounterRules.getOrNull(roll - 7) ?: return state
             // Livre p. 42 : on ignore les rencontres dont le type n'existe pas dans la région.
             if (!isFitlandEncounter(rule)) {
-                return state.copy(lastEncounter = null,
+                return state.copy(lastEncounter = null, meditationActive = false, vigorActive = false,
+                    quantumMode = "", illusionActive = false, warriorActive = false, oracleCombatActive = false,
                     log = (listOf("$label ; somme 7D6 = $roll, ${rule.name} absent du Fitland : rencontre ignorée (livre p. 42).") + state.log).take(100))
             }
             val fixed = rule.effect.contains("quantité fixe", ignoreCase = true)

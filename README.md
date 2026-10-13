@@ -4,7 +4,7 @@ Application de fitness-RPG **hors ligne**, en Kotlin / Jetpack Compose, adaptée
 
 ## Version et historique
 
-- Version actuelle : **1.24.0** (`versionCode` **127**).
+- Version actuelle : **1.26.0** (`versionCode` **129**).
 - Source de vérité : `app/build.gradle.kts`, champs `versionName` et `versionCode`.
 - L'écran **Application** affiche automatiquement `BuildConfig.VERSION_NAME`, sans numéro codé en dur.
 - Historique des changements : [CHANGELOG.md](CHANGELOG.md). Carte et 28 tronçons : [CARTE-TRONCONS.md](CARTE-TRONCONS.md). Aucun fichier `VERSION-X.X.txt` n'est nécessaire.
@@ -34,6 +34,7 @@ La configuration de compilation est dans `.github/workflows/build-apk.yml`. Un A
 - Combat par mouvements/exercices associés aux armes, suivi des PV par adversaire et jauges visuelles.
 - Inventaire par catégories, équipements, améliorations et consommables.
 - Carnet de campagne avec les 36 chapitres du livre, accès restreints, pages, validations manuelles et suivi des lieux visités.
+- Carnet de huit compagnons : Oracle de Tasmina, Barde, Paladin/Quêteur, Fée, Troll Conteur, Bulker Fruité et personnages narratifs. Les confirmations de Prières, de musique et les utilisations spéciales sont enregistrées.
 - Journaux, progression et sauvegarde locale, ainsi que boutons de test des PO et des capacités quotidiennes.
 - Huit portraits illustrés distincts dans `app/src/main/res/drawable/portrait_*.png` (450 × 600), embarqués dans l'APK, sans Internet.
 
@@ -79,3 +80,13 @@ Consulter le livre pour les règles officielles. Les écarts doivent être indiq
 - Pour les chapitres **à accès restreint**, utilisez « J'ai obtenu cet accès dans le livre » après obtention effective. Les accès gagnés dans trois chapitres vérifiés sont appliqués automatiquement après validation manuelle de ceux-ci : p.110, 112 et 116.
 - Les compagnons, les récompenses et les autres effets narratifs ne sont **pas** accordés automatiquement. Le PDF/livre est nécessaire pour jouer ces scènes ; ce carnet sert à en suivre l'avancement.
 - Les sauvegardes plus anciennes sont reprises sans inventer des chapitres ou lieux précédemment accomplis.
+
+### Nouveautés 1.26.0 — Compagnons
+
+- Ajouter/recruter les compagnons depuis **Aventure → Compagnons** après vérification du chapitre dans le livre.
+- Préparer un trajet dans Aventure : cocher si l'on a effectué la **Prière de l'Oracle** (×2 dégâts du voyage), celle du **Paladin/Quêteur** (−2 sur un dé de quantité à choisir), ou si l'on écoutera de la **musique avec le Barde compagnon** (÷2 sur la distance).
+- Pendant la rencontre, l'Oracle peut également être activé après une Prière, **avant la première attaque**, pour le combat seulement.
+- Le Paladin/Quêteur peut modifier un dé de quantité une seule fois pendant le voyage. Convention : résultat du dé au minimum 1. Les quantités fixes ne sont pas concernées.
+- Les dégâts entrés manuellement sont considérés **bruts** et les bonus actifs Guerrier/Oracle y sont appliqués automatiquement ; les dégâts fixes des Shakers restent inchangés.
+- Les états sont sauvegardés, les pouvoirs du voyage expirent à l'arrivée ou à la fuite. Un raccourci de Barde compagnon ne se cumule pas avec une capacité de classe.
+- Exécuter les tests purs sans Android : `kotlinc app/src/main/java/com/dungeonoffitness/app/CompanionRules.kt tests/CompanionRulesTest.kt -include-runtime -d tests.jar && java -jar tests.jar`.
