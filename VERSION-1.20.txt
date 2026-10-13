@@ -1,1 +1,0 @@
-Dungeon of Fitness 1.20.0 — refonte visuelle : 8 portraits de classe, jauges PV par adversaire, icônes d’équipement et palette fantasy. Aucun changement de règles.
