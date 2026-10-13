@@ -234,6 +234,9 @@ private data class AppState(
     val routeStops: List<String> = emptyList(),
     val routeLegKm: List<Double> = emptyList(),
     val routeLegIndex: Int = 0,
+    val visitedPlaces: List<String> = emptyList(),
+    val completedChapters: List<String> = emptyList(),
+    val manualChapterAccess: List<String> = emptyList(),
     val quests: List<String> = listOf("Créer et suivre votre profil", "Tenir votre journal d'entraînement")
 )
 
@@ -258,13 +261,17 @@ fun DungeonApp() {
     )) {
         Scaffold(bottomBar = { NavigationBar {
             listOf("home" to "Accueil", "adventure" to "Aventure", "character" to "Personnage", "inventory" to "Sac", "journal" to "Journal", "application" to "Application").forEach { (id, label) ->
-                NavigationBarItem(selected = tab == id, onClick = { tab = id }, icon = { Text(if (id == "home") "⌂" else if (id == "adventure") "⚔" else if (id == "character") "♙" else if (id == "inventory") "◆" else if (id == "journal") "▤" else "⚙") }, label = { Text(label) })
+                NavigationBarItem(selected = tab == id || (id == "adventure" && tab == "chapters"), onClick = { tab = id }, icon = { Text(if (id == "home") "⌂" else if (id == "adventure") "⚔" else if (id == "character") "♙" else if (id == "inventory") "◆" else if (id == "journal") "▤" else "⚙") }, label = { Text(label) })
             }
         }}) { pad ->
             Box(Modifier.padding(pad).fillMaxSize()) {
                 when(tab) {
                     "home" -> Home(state) { tab = "adventure" }
+                    "chapters" -> CampaignChapters(state, onBack = { tab = "adventure" },
+                        onCompletionChange = { title, done -> update(setChapterCompleted(state, title, done)) },
+                        onAccessChange = { title, acquired -> update(confirmChapterAccess(state, title, acquired)) })
                     "adventure" -> Adventure(state,
+                        onOpenChapters = { tab = "chapters" },
                         onTravel = { km -> update(travel(state, km)) },
                         onWarrior = { update(activateWarrior(state)) },
                         onResolve = { damage -> update(resolve(state, damage)) },
@@ -343,6 +350,7 @@ fun DungeonApp() {
                         onArrive = {
                             if (state.lastEncounter == null && state.destinationKm > 0.0 && state.distance + 0.00001 >= state.destinationKm) {
                                 update(state.copy(character = state.character.copy(location = state.destination),
+                                    visitedPlaces = (state.visitedPlaces + state.character.location + state.destination).distinct(),
                                     destination = "", destinationKm = 0.0, distance = 0.0, bardJourney = false, retreatActive = false, retreatOrigin = "",
                                     routeStops = emptyList(), routeLegKm = emptyList(), routeLegIndex = 0,
                                     log = (listOf("Arrivée à ${state.destination}. Chapitre à valider selon le livre.") + state.log).take(100)))
@@ -428,7 +436,7 @@ fun DungeonApp() {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Text("⚔ DUNGEON OF FITNESS", color = Color(0xFFEBC582), style = MaterialTheme.typography.headlineMedium) }
         item { ClassBanner(state.character) }
-        item { Text("Le Disque-Fonte devient enfin jouable sans le PDF.", style = MaterialTheme.typography.bodyLarge) }
+        item { Text("Exploration, combats et suivi de campagne. Le livre reste nécessaire pour les chapitres et leurs épreuves.", style = MaterialTheme.typography.bodyLarge) }
         item { Card { Column(Modifier.padding(18.dp)) {
             Text(state.character.name, style = MaterialTheme.typography.titleLarge)
             Text("Niveau ${state.character.level} · ${state.character.className} · Disciple de ${state.character.divinity}")
@@ -495,6 +503,152 @@ private val restrictedMapPlaces = setOf(
     "Île des poids guidés", "Antre de Mollefesse", "Falaises Olympiques",
     "Ruines du Golem", "Temple de la Prophétie", "Caverne des Nuages sans fin"
 )
+
+// Chapitres principaux de la campagne, sommaire du livre p. 218-219.
+// Les contenus narratifs et les exercices restent dans le livre papier : on enregistre la progression.
+private data class StoryChapter(
+    val title: String, val page: Int, val restricted: Boolean = false,
+    val place: String? = title, val grants: List<String> = emptyList()
+)
+private val storyChapters = listOf(
+    StoryChapter("Fontaria", 68),
+    StoryChapter("Entrepôts Shaker+©", 70, place = "Entrepôts Shaker+"),
+    StoryChapter("Tique-Couenne", 72),
+    StoryChapter("Nosferathon", 74),
+    StoryChapter("Omega Beach", 76),
+    StoryChapter("Garde Froide", 78),
+    StoryChapter("Litière Ville", 80),
+    StoryChapter("Mont Stepper", 82),
+    StoryChapter("Tombe d’Arno", 84),
+    StoryChapter("Temple de Tasmina", 86),
+    StoryChapter("Plaine du Fitland", 88),
+    StoryChapter("Sud du Fitland", 90),
+    StoryChapter("Forêt de Brise Mollets", 92),
+    StoryChapter("Dévers du Fitland", 94),
+    StoryChapter("Dunes des sacs crevés", 96),
+    StoryChapter("Erythropoiéta", 98),
+    StoryChapter("Oasis Interdite", 100),
+    StoryChapter("Rocher de la Croupe Draconique", 102),
+    StoryChapter("Khôlkozia", 104),
+    StoryChapter("Fei Tôro Choh", 106),
+    StoryChapter("Rives de la Mer de Nuages", 108),
+    // Ces trois scènes sont situées à Erythropoiéta (livre p.110-114).
+    StoryChapter("L’audience du Roi", 110, place = "Erythropoiéta", grants = listOf("Temple de la prophétie")),
+    StoryChapter("L’arène", 112, place = "Erythropoiéta", grants = listOf("Ruines du Golem")),
+    StoryChapter("Le marché libre", 114, place = "Erythropoiéta"),
+    StoryChapter("Île des poids guidés", 116, restricted = true, grants = listOf("Caverne des nuages sans fin")),
+    StoryChapter("Antre de Mollefesse", 118, restricted = true),
+    StoryChapter("Falaises Olympiques", 120, restricted = true),
+    StoryChapter("Temple de la prophétie", 122, restricted = true, place = "Temple de la Prophétie"),
+    StoryChapter("Caverne des nuages sans fin", 124, restricted = true, place = "Caverne des Nuages sans fin"),
+    StoryChapter("Exploration du Temple de Tasmina", 126, restricted = true, place = "Temple de Tasmina"),
+    StoryChapter("Ruines du Golem", 128, restricted = true),
+    StoryChapter("Salle secrète de l’Oasis", 130, restricted = true, place = "Oasis Interdite"),
+    StoryChapter("La Communauté des Abdos", 132, restricted = true, place = null),
+    StoryChapter("L’audience du Khôl", 134, restricted = true, place = "Khôlkozia"),
+    StoryChapter("Les ombres de Nosferathon", 136, restricted = true, place = "Nosferathon"),
+    StoryChapter("Au-delà de la fin", 138, restricted = true, place = null)
+)
+private fun availableChapterAccess(s: AppState): Set<String> =
+    (s.manualChapterAccess + storyChapters.filter { it.title in s.completedChapters }.flatMap { it.grants }).toSet()
+
+private fun canFinishChapter(s: AppState, chapter: StoryChapter): Boolean =
+    (chapter.place == null || s.character.location == chapter.place) &&
+    (s.destinationKm <= 0.0 && s.lastEncounter == null) &&
+    (!chapter.restricted || chapter.title in availableChapterAccess(s))
+
+private fun setChapterCompleted(s: AppState, title: String, completed: Boolean): AppState {
+    val chapter = storyChapters.firstOrNull { it.title == title } ?: return s
+    if (completed && !canFinishChapter(s, chapter)) return s
+    val updated = if (completed) (s.completedChapters + title).distinct() else s.completedChapters - title
+    return s.copy(completedChapters = updated, log =
+        (listOf("Chapitre « $title » (p. ${chapter.page}) ${if (completed) "confirmé terminé" else "validation annulée"} par le joueur. Aucun exercice ni récompense automatique.") + s.log).take(100))
+}
+
+private fun confirmChapterAccess(s: AppState, title: String, acquired: Boolean): AppState {
+    val chapter = storyChapters.firstOrNull { it.title == title && it.restricted } ?: return s
+    val newManual = if (acquired) (s.manualChapterAccess + title).distinct() else s.manualChapterAccess - title
+    return s.copy(manualChapterAccess = newManual,
+        log = (listOf("Accès « ${chapter.title} » ${if (acquired) "confirmé obtenu dans le livre" else "retiré du carnet"} (suivi manuel).") + s.log).take(100))
+}
+
+@Composable private fun CampaignChapters(
+    state: AppState, onBack: () -> Unit,
+    onCompletionChange: (String, Boolean) -> Unit,
+    onAccessChange: (String, Boolean) -> Unit
+) {
+    var category by remember { mutableStateOf("Sur place") }
+    val access = availableChapterAccess(state)
+    val current = state.character.location
+    val completedCount = storyChapters.count { it.title in state.completedChapters }
+    val visited = (state.visitedPlaces + current).distinct()
+    val visible = storyChapters.filter { chapter -> when (category) {
+        "Sur place" -> chapter.place == current
+        "Accès restreint" -> chapter.restricted
+        "Terminés" -> chapter.title in state.completedChapters
+        else -> true
+    } }
+    LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item { Text("📖 Carnet de campagne", color = Color(0xFFEBC582), style = MaterialTheme.typography.headlineSmall) }
+        item { OutlinedButton(onClick = onBack) { Text("← Retour à l'aventure") } }
+        item { Text("📍 $current · $completedCount / ${storyChapters.size} chapitres validés · ${visited.size} lieu(x) visité(s)") }
+        item { LinearProgressIndicator(progress = { completedCount.toFloat() / storyChapters.size }, modifier = Modifier.fillMaxWidth()) }
+        item { Text("Index officiel des chapitres (sommaire p. 218-219). Les pages indiquent où lire et effectuer les épreuves : l'application ne remplace pas le livre.", style = MaterialTheme.typography.bodySmall) }
+        item {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                listOf("Sur place", "Tous", "Accès restreint", "Terminés").forEach { mode ->
+                    FilterChip(selected = category == mode, onClick = { category = mode }, label = { Text(mode) })
+                }
+            }
+        }
+        if (visible.isEmpty()) item { Text(if (category == "Sur place") "Aucun chapitre principal associé à cette position. Consultez le livre pour les scènes spéciales." else "Aucun chapitre pour ce filtre.") }
+        items(visible, key = { it.page }) { chapter ->
+            val done = chapter.title in state.completedChapters
+            val unlocked = !chapter.restricted || chapter.title in access
+            val here = chapter.place == current
+            val canFinish = canFinishChapter(state, chapter)
+            Card(border = BorderStroke(1.dp, if (done) Color(0xFF4A9C73) else if (unlocked) Color(0xFF97784A) else Color(0xFF575460))) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text("${if (done) "✅" else if (chapter.restricted && !unlocked) "🔒" else "📜"} ${chapter.title}", style = MaterialTheme.typography.titleMedium)
+                    Text("Livre p. ${chapter.page} · ${if (chapter.restricted) "Accès restreint" else "Accès libre"}", style = MaterialTheme.typography.bodySmall)
+                    Text(if (chapter.place == null) "Scène narrative : vérifiez la situation dans le livre avant validation."
+                         else if (here) "📍 Vous êtes dans la zone de ce chapitre."
+                         else "📍 Zone : ${chapter.place} ${if (chapter.place in visited) "· déjà visitée" else "· à rejoindre"}",
+                         style = MaterialTheme.typography.bodySmall)
+                    if (chapter.restricted && !unlocked) {
+                        Text("Accès non encore enregistré. Vérifiez dans le livre que votre personnage l'a obtenu avant de cocher.", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (chapter.restricted) {
+                        val manual = chapter.title in state.manualChapterAccess
+                        if (manual) {
+                            TextButton(onClick = { onAccessChange(chapter.title, false) }) { Text("Retirer l'accès confirmé manuellement") }
+                        } else if (!unlocked) {
+                            OutlinedButton(onClick = { onAccessChange(chapter.title, true) }) { Text("J'ai obtenu cet accès dans le livre") }
+                        } else {
+                            Text("🔑 Accès obtenu grâce à un chapitre déjà terminé.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF89C9A1))
+                        }
+                    }
+                    if (chapter.grants.isNotEmpty()) Text("À la validation, accès accordé : ${chapter.grants.joinToString()} (livre p. ${chapter.page}).", style = MaterialTheme.typography.bodySmall)
+                    if (done) {
+                        OutlinedButton(onClick = { onCompletionChange(chapter.title, false) }) { Text("Annuler la validation") }
+                    } else {
+                        Button(onClick = { onCompletionChange(chapter.title, true) }, enabled = canFinish,
+                            modifier = Modifier.fillMaxWidth()) { Text("J'ai terminé les épreuves du chapitre") }
+                        if (!canFinish) Text("Validation indisponible : ${when {
+                            state.destinationKm > 0.0 -> "terminez le trajet en cours"
+                            state.lastEncounter != null -> "résolvez la rencontre"
+                            chapter.restricted && !unlocked -> "obtenez l'accès dans le livre"
+                            !here && chapter.place != null -> "rendez-vous à ${chapter.place}"
+                            else -> "conditions à vérifier dans le livre"
+                        }}.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+        item { Text("Important : un passage pendant un trajet ne valide aucun chapitre. Les récompenses, compagnons et autres effets ne sont pas appliqués automatiquement sauf les accès explicitement indiqués ici. Les épreuves sont à réaliser selon le livre.", style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
 private data class MapRoute(val places: List<String>, val km: Int)
 private fun mapNeighbors(place: String): List<Pair<String, Int>> = officialMapLinks.mapNotNull { link ->
     when (place) {
@@ -554,6 +708,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
     if (s.lastEncounter != null || !hasPendingWaypoint(s)) return s
     val reached = s.routeStops[s.routeLegIndex + 1]
     return s.copy(character = s.character.copy(location = reached), routeLegIndex = s.routeLegIndex + 1,
+        visitedPlaces = (s.visitedPlaces + s.character.location + reached).distinct(),
         log = (listOf("Passage à $reached (${s.routeLegIndex + 1}/${s.routeLegKm.size}) ; chapitre NON validé, trajet poursuivi vers ${s.destination}.") + s.log).take(100))
 }
 
@@ -602,6 +757,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
 
 @Composable private fun Adventure(
     state: AppState,
+    onOpenChapters: () -> Unit,
     onTravel: (Double) -> Unit,
     onWarrior: () -> Unit,
     onResolve: (Int) -> Unit,
@@ -647,6 +803,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("🗺️ Expédition", color = Color(0xFFEBC582), style = MaterialTheme.typography.headlineSmall) }
         item { OutlinedButton(onClick = { showMap = true }, modifier = Modifier.fillMaxWidth()) { Text("🗺️ Ouvrir la carte officielle (zoom)") } }
+        item { Button(onClick = onOpenChapters, modifier = Modifier.fillMaxWidth()) { Text("📖 Chapitres, accès et progression") } }
         item { Text("Position actuelle : ${state.character.location}") }
         item { Text("Classe : ${state.character.className} · Niveau ${state.character.level}") }
         if (state.character.specialAbility.isNotBlank()) item { Text("Mouvement personnel : ${state.character.specialAbility}", style = MaterialTheme.typography.bodySmall) }
@@ -1314,12 +1471,12 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             "Classes et historique des classes débloquées",
             "Accomplissements conservés lors du changement de classe",
             "Accomplissements non validés des anciennes classes masqués",
-            "Carnet des lieux de Fitland (aperçu sans distances inventées)",
+            "Carnet des 36 chapitres officiels : pages, accès, validation manuelle et suivi des lieux visités",
             "Fiche : statistiques et accomplissements en haut"
         ).forEach { feature -> item { Text("✓ $feature") } }
         item { HorizontalDivider() }
         item { Text("Carnet des lieux de Fitland", style = MaterialTheme.typography.titleMedium) }
-        item { Text("Aperçu des lieux du livre. La carte interactive et les trajets officiels restent à intégrer.") }
+        item { Text("La carte zoomable et le calcul d’itinéraires sont dans Aventure ; le carnet des 36 chapitres se trouve dans « Chapitres, accès et progression ».") }
         listOf("Fontaria", "Entrepôts Shaker+", "Tique-Couenne", "Nosferathon", "Omega Beach", "Garde Froide", "Litière Ville", "Mont Stepper").forEach { place ->
             item { Text("• $place") }
         }
@@ -1327,7 +1484,6 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         item { Text("En développement", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Conditions officielles de validation des accomplissements",
-            "Carte interactive et calcul automatique des itinéraires",
             "Combats automatisés avec dégâts calculés depuis l'équipement",
             "Objets, quêtes et entraînements complets"
         ).forEach { feature -> item { Text("○ $feature") } }
@@ -1660,11 +1816,12 @@ private fun saveState(context: Context, state: AppState) {
         put("unlockedClasses", JSONArray(c.unlockedClasses)); put("completedAchievements", JSONArray(c.completedAchievements))
     }
     val obj = JSONObject().apply {
-        put("schema", 22); put("character", character); put("distance", state.distance)
+        put("schema", 23); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("totalTravelKm", state.totalTravelKm)
         put("encounters", state.encounters); put("retreatActive", state.retreatActive); put("retreatOrigin", state.retreatOrigin)
         put("routeStops", JSONArray(state.routeStops)); put("routeLegKm", JSONArray(state.routeLegKm)); put("routeLegIndex", state.routeLegIndex)
+        put("visitedPlaces", JSONArray(state.visitedPlaces)); put("completedChapters", JSONArray(state.completedChapters)); put("manualChapterAccess", JSONArray(state.manualChapterAccess))
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
         put("equippedWeapon", state.equippedWeapon); put("equippedSupport", state.equippedSupport); put("meditationActive", state.meditationActive)
         put("vigorActive", state.vigorActive); put("quantumMode", state.quantumMode); put("illusionActive", state.illusionActive)
@@ -1749,6 +1906,9 @@ private fun loadState(context: Context): AppState {
             routeStops = strings("routeStops", emptyList()),
             routeLegKm = obj.optJSONArray("routeLegKm")?.let { arr -> (0 until arr.length()).map { i -> arr.optDouble(i, 0.0) } } ?: emptyList(),
             routeLegIndex = obj.optInt("routeLegIndex", 0),
+            visitedPlaces = strings("visitedPlaces", emptyList()),
+            completedChapters = strings("completedChapters", emptyList()).filter { title -> storyChapters.any { it.title == title } },
+            manualChapterAccess = strings("manualChapterAccess", emptyList()).filter { title -> storyChapters.any { it.title == title && it.restricted } },
             equippedWeapon = obj.optString("equippedWeapon", ""), equippedSupport = obj.optString("equippedSupport", ""), meditationActive = obj.optBoolean("meditationActive", false),
             vigorActive = obj.optBoolean("vigorActive", false), quantumMode = obj.optString("quantumMode", ""), illusionActive = obj.optBoolean("illusionActive", false),
             log = strings("log", baseState.log), inventory = strings("inventory", baseState.inventory),
@@ -1811,6 +1971,7 @@ private fun useCavalierAbility(state: AppState, target: String): AppState {
         s.cavalierUsed || s.destinationKm > 0.0 || s.lastEncounter != null ||
         mapNeighbors(s.character.location).none { it.first == target }) return s
     return s.copy(character = s.character.copy(location = target), cavalierUsed = true,
+        visitedPlaces = (s.visitedPlaces + s.character.location + target).distinct(),
         bardJourney = false, destination = "", destinationKm = 0.0, distance = 0.0,
         routeStops = emptyList(), routeLegKm = emptyList(), routeLegIndex = 0,
         log = (listOf("Cavalier : téléportation depuis ${s.character.location} vers $target (liaison directe confirmée par carte p. 51), utilisation quotidienne consommée. Aucun km ni rencontre.") + s.log).take(100))

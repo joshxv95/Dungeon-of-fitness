@@ -4,7 +4,7 @@ Application de fitness-RPG **hors ligne**, en Kotlin / Jetpack Compose, adaptée
 
 ## Version et historique
 
-- Version actuelle : **1.23.0** (`versionCode` **126**).
+- Version actuelle : **1.24.0** (`versionCode` **127**).
 - Source de vérité : `app/build.gradle.kts`, champs `versionName` et `versionCode`.
 - L'écran **Application** affiche automatiquement `BuildConfig.VERSION_NAME`, sans numéro codé en dur.
 - Historique des changements : [CHANGELOG.md](CHANGELOG.md). Carte et 28 tronçons : [CARTE-TRONCONS.md](CARTE-TRONCONS.md). Aucun fichier `VERSION-X.X.txt` n'est nécessaire.
@@ -33,6 +33,7 @@ La configuration de compilation est dans `.github/workflows/build-apk.yml`. Un A
 - Parcours réel en kilomètres (ou équivalent en minutes en mode novice), rencontres selon les tables du livre, contextes et exercices.
 - Combat par mouvements/exercices associés aux armes, suivi des PV par adversaire et jauges visuelles.
 - Inventaire par catégories, équipements, améliorations et consommables.
+- Carnet de campagne avec les 36 chapitres du livre, accès restreints, pages, validations manuelles et suivi des lieux visités.
 - Journaux, progression et sauvegarde locale, ainsi que boutons de test des PO et des capacités quotidiennes.
 - Huit portraits illustrés distincts dans `app/src/main/res/drawable/portrait_*.png` (450 × 600), embarqués dans l'APK, sans Internet.
 
@@ -69,3 +70,12 @@ Consulter le livre pour les règles officielles. Les écarts doivent être indiq
 - Le journal et l'accueil affichent la prochaine étape, les passages sont enregistrés ; en cas de fuite, le retour part du **dernier point d'étape confirmé**.
 - Pour les trajets débutés avant la v1.23, le suivi reste manuel afin de ne pas inventer d'étapes au milieu d'une sauvegarde.
 - Pour modifier la distance proposée, la saisie manuelle désactive le suivi automatique.
+
+### Nouveautés 1.24.0 — Carnet de campagne
+
+- Dans **Aventure → 📖 Chapitres, accès et progression**, consultez les **36 chapitres principaux** (pages imprimées 68 à 138, sommaire p. 218-219) et sélectionnez un filtre.
+- **Valider** un chapitre seulement après avoir effectué ses épreuves dans le livre. Un déplacement, un passage dans une ville ou une victoire ne suffit pas.
+- Les chapitres liés à un lieu ne sont validables qu'en étant sur place, hors trajet et combat. Les scènes finales ou purement narratives demandent une confirmation explicite et une vérification de leurs conditions dans le livre.
+- Pour les chapitres **à accès restreint**, utilisez « J'ai obtenu cet accès dans le livre » après obtention effective. Les accès gagnés dans trois chapitres vérifiés sont appliqués automatiquement après validation manuelle de ceux-ci : p.110, 112 et 116.
+- Les compagnons, les récompenses et les autres effets narratifs ne sont **pas** accordés automatiquement. Le PDF/livre est nécessaire pour jouer ces scènes ; ce carnet sert à en suivre l'avancement.
+- Les sauvegardes plus anciennes sont reprises sans inventer des chapitres ou lieux précédemment accomplis.

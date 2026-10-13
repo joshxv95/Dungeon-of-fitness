@@ -1,3 +1,12 @@
+## 1.24.0 — Carnet des chapitres et suivi des accès
+- Carnet de **36 chapitres principaux** de la campagne, avec titre et page selon le sommaire du livre (p. 218-219) : 24 en accès libre, 12 en accès restreint.
+- Entrée depuis l'onglet Aventure, filtres « Sur place », « Tous », « Accès restreint », « Terminés », et progression visuelle.
+- Le passage dans une ville, un déplacement ou une téléportation ne termine jamais automatiquement un chapitre. Le joueur confirme avoir exécuté les épreuves dans le livre ; impossible de valider au milieu d'un trajet ou d'un combat.
+- Les chapitres géolocalisables demandent de se trouver au bon endroit. Pour les scènes hors carte, la confirmation est manuelle après vérification du récit.
+- **Accès restreints :** confirmation manuelle possible uniquement si le joueur l'a obtenu dans le livre. Trois accès explicitement conférés par des chapitres achevés sont reconnus (Audience du Roi → Temple de la prophétie, Arène → Ruines du Golem, Île des poids guidés → Caverne des nuages sans fin). Retirer la validation du chapitre retire sa récompense d'accès automatique, sauf si l'accès a aussi été enregistré manuellement.
+- Carnet de lieux visités distinct des chapitres terminés, mis à jour lors du passage aux étapes, de l'arrivée et de la téléportation ; la position courante compte comme visitée. Les trajets sauvegardés précédents ne sont pas inventés rétroactivement.
+- Sauvegarde locale additive (schéma 23), mêmes signature et identifiant ; versionCode 127. Aucune récompense de chapitre, épreuve ou compagnon inventé/automatisé.
+
 ## 1.23.0 — Voyage guidé à étapes et seuils de rencontre
 - Suivi réel des étapes intermédiaires des trajets calculés depuis les 28 tronçons de la carte ; passage à confirmer, sans validation automatique du chapitre du livre.
 - Les distances raccourcies de l'Éclaireur et du Barde s'appliquent à chaque tronçon.
