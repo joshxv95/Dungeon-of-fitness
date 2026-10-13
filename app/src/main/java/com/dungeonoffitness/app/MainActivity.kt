@@ -1,6 +1,11 @@
 package com.dungeonoffitness.app
 
 import android.os.Bundle
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.delay
 import android.content.Context
 import org.json.JSONObject
 import org.json.JSONArray
@@ -247,6 +252,10 @@ private data class AppState(
     val paladinJourneyArmed: Boolean = false,
     val paladinJourneyUsed: Boolean = false,
     val companionBardJourney: Boolean = false,
+    // Curseur de lecture du compteur de pas : sauvegardé avec l'aventure pour garantir l'idempotence.
+    val stepSessionId: String = "",
+    val stepAppliedSteps: Int = 0,
+    val stepLastClosedId: String = "",
     val quests: List<String> = listOf("Créer et suivre votre profil", "Tenir votre journal d'entraînement")
 )
 
@@ -262,6 +271,80 @@ fun DungeonApp() {
     val context = androidx.compose.ui.platform.LocalContext.current
     var state by remember { mutableStateOf(loadState(context)) }
     fun update(next: AppState) { state = next; saveState(context, next) }
+    var stepSnapshot by remember { mutableStateOf(StepSessionStore.read(context)) }
+    var stepNotice by remember { mutableStateOf("") }
+    val latestState by rememberUpdatedState(state)
+    // Synchronisation non destructive : les capteurs n'écrivent JAMAIS dans le JSON RPG.
+    // Chaque pas est crédité au maximum une fois, même si Android recrée l'activité.
+    LaunchedEffect(context) {
+        while (true) {
+            val fresh = StepSessionStore.read(context)
+            stepSnapshot = fresh
+            val game = latestState
+            val sameSession = fresh.id.isNotBlank() && fresh.id == game.stepSessionId
+            val pendingSteps = sameSession && fresh.steps > game.stepAppliedSteps
+            val justClosed = sameSession && fresh.status in listOf("completed", "stopped", "error") &&
+                game.stepLastClosedId != fresh.id
+            if (pendingSteps || justClosed) {
+                val delta = (fresh.steps - game.stepAppliedSteps).coerceAtLeast(0)
+                var moved = if (delta > 0) travel(game, stepsToJourneyKm(delta), viaSteps = true) else game
+                moved = moved.copy(stepAppliedSteps = fresh.steps.coerceAtLeast(game.stepAppliedSteps))
+                if (justClosed) {
+                    val endLabel = when (fresh.status) {
+                        "completed" -> "arrêt automatique au seuil"
+                        "error" -> "interruption : ${fresh.error}"
+                        else -> "arrêt manuel"
+                    }
+                    moved = moved.copy(stepLastClosedId = fresh.id,
+                        log = (listOf("👣 Podomètre : ${fresh.steps} pas (${fresh.steps} m) · $endLabel.") + moved.log).take(100))
+                }
+                update(moved)
+            }
+            delay(750L)
+        }
+    }
+    fun beginStepSession() {
+        val game = state
+        val old = StepSessionStore.read(context)
+        if (old.active || (old.id == game.stepSessionId && old.steps > game.stepAppliedSteps)) return
+        val cap = nextStepBoundary(game)?.let(::stepsUntilBoundary) ?: 0
+        if (cap <= 0 || game.character.profileType == "novice") return
+        try {
+            val session = StepSessionStore.begin(context, cap)
+            // Sauvegarde du curseur d'abord, puis lancement du capteur.
+            update(game.copy(stepSessionId = session.id, stepAppliedSteps = 0,
+                log = (listOf("👣 Podomètre lancé : plafond de $cap pas avant la prochaine rencontre ou étape.") + game.log).take(100)))
+            stepSnapshot = session
+            StepTrackingService.dispatch(context, StepTrackingService.ACTION_START)
+            stepNotice = "Session lancée. Attends la première mesure du capteur avant de marcher."
+        } catch (ex: Exception) {
+            StepSessionStore.status(context, "error", error = "Démarrage impossible : ${ex.javaClass.simpleName}")
+            stepSnapshot = StepSessionStore.read(context)
+        }
+    }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        // Même si les notifications sont refusées, Android autorise le suivi via le service visible dans son gestionnaire de tâches.
+        beginStepSession()
+    }
+    val activityPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            if (Build.VERSION.SDK_INT >= 33 &&
+                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            else beginStepSession()
+        } else stepNotice = "Autorisation d'activité physique refusée : le mode manuel reste disponible."
+    }
+    fun requestStepStart() {
+        if (!StepSessionStore.hasSensor(context)) {
+            stepNotice = "Aucun capteur de pas compatible sur ce téléphone. Utilise les kilomètres manuels."
+        } else if (!StepSessionStore.hasPermission(context) && Build.VERSION.SDK_INT >= 29) {
+            activityPermission.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+        } else if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else beginStepSession()
+    }
+    val stepBusy = stepSnapshot.active || (stepSnapshot.id == state.stepSessionId && stepSnapshot.steps > state.stepAppliedSteps)
     var tab by remember { mutableStateOf("home") }
     var resetDialog by remember { mutableStateOf(false) }
     MaterialTheme(colorScheme = darkColorScheme(
@@ -286,7 +369,15 @@ fun DungeonApp() {
                     "adventure" -> Adventure(state,
                         onOpenChapters = { tab = "chapters" },
                         onOpenCompanions = { tab = "companions" },
-                        onTravel = { km -> update(travel(state, km)) },
+                        onTravel = { km -> if (!stepBusy) update(travel(state, km)) },
+                        stepSnapshot = stepSnapshot,
+                        stepNotice = stepNotice,
+                        stepBusy = stepBusy,
+                        stepSensorAvailable = StepSessionStore.hasSensor(context),
+                        onStartSteps = { requestStepStart() },
+                        onPauseSteps = { StepTrackingService.dispatch(context, StepTrackingService.ACTION_PAUSE) },
+                        onResumeSteps = { StepTrackingService.dispatch(context, StepTrackingService.ACTION_RESUME) },
+                        onStopSteps = { StepTrackingService.dispatch(context, StepTrackingService.ACTION_STOP) },
                         onWarrior = { update(activateWarrior(state)) },
                         onResolve = { damage -> update(resolve(state, warriorDamage(state, damage))) },
                         onWeaponAttack = { name, count, pattesUsed, target, supportConfirmed ->
@@ -441,6 +532,10 @@ fun DungeonApp() {
                 title = { Text("Tout recommencer ?") },
                 text = { Text("Cette action supprime définitivement le personnage, les tests, les kilomètres, l'inventaire et le journal. Elle ne peut pas être annulée.") },
                 confirmButton = { TextButton(onClick = {
+                    context.stopService(android.content.Intent(context, StepTrackingService::class.java))
+                    StepSessionStore.clear(context)
+                    stepSnapshot = StepSnapshot()
+                    stepNotice = ""
                     context.getSharedPreferences("dof_save", Context.MODE_PRIVATE).edit().clear().commit()
                     state = AppState()
                     tab = "home"
@@ -891,6 +986,14 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
     onOpenChapters: () -> Unit,
     onOpenCompanions: () -> Unit,
     onTravel: (Double) -> Unit,
+    stepSnapshot: StepSnapshot,
+    stepNotice: String,
+    stepBusy: Boolean,
+    stepSensorAvailable: Boolean,
+    onStartSteps: () -> Unit,
+    onPauseSteps: () -> Unit,
+    onResumeSteps: () -> Unit,
+    onStopSteps: () -> Unit,
     onWarrior: () -> Unit,
     onResolve: (Int) -> Unit,
     onWeaponAttack: (String, Int, Boolean, Int?, Boolean) -> Unit,
@@ -1137,7 +1240,11 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
             if (state.paladinJourneyArmed) item { Text(if (state.paladinJourneyUsed) "🛡️ Paladin/Quêteur : pouvoir de ce voyage déjà utilisé." else "🛡️ Paladin/Quêteur : dé de quantité −2 encore disponible.", color = Color(0xFFEBC582)) }
             item { Text("Destination : ${state.destination} · ${"%.1f".format(state.destinationKm)} $unit") }
             item { LinearProgressIndicator(progress = { (state.distance / state.destinationKm).coerceIn(0.0,1.0).toFloat() }, modifier = Modifier.fillMaxWidth()) }
-            item { Text("${"%.1f".format(state.distance)} / ${"%.1f".format(state.destinationKm)} $unit") }
+            item { Text("${"%.3f".format(state.distance)} / ${"%.2f".format(state.destinationKm)} $unit") }
+            item {
+                StepTrackerPanel(state, stepSnapshot, stepNotice, stepBusy, stepSensorAvailable,
+                    onStartSteps, onPauseSteps, onResumeSteps, onStopSteps)
+            }
             val guided = validGuidedRoute(state)
             if (guided) {
                 val end = nextRouteEnd(state)
@@ -1169,7 +1276,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                     }
                 }
             }
-            val canContinue = !pending && state.distance + 0.00001 < state.destinationKm && !hasPendingWaypoint(state)
+            val canContinue = !pending && !stepBusy && state.distance + 0.00001 < state.destinationKm && !hasPendingWaypoint(state)
             if (novice) {
                 item { Button(enabled = canContinue,
                     onClick = { onTravel(1.0) }, modifier = Modifier.fillMaxWidth()) { Text("+ 1 minute d'endurance") } }
@@ -1185,7 +1292,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                 item { Button(onClick = onArrive, modifier = Modifier.fillMaxWidth()) { Text("Valider l'arrivée à ${state.destination}") } }
             }
         }
-        item { Text("Progression totale : ${"%.1f".format(state.totalTravelKm)} $unit · Rencontres déclenchées : ${state.encounters}") }
+        item { Text("Progression totale : ${"%.3f".format(state.totalTravelKm)} $unit · Rencontres déclenchées : ${state.encounters}") }
         item { Text("Une rencontre est déclenchée tous les ${if ("Le Troll Conteur" in availableCompanions(state)) 3 else 6} ${unit} cumulés${if ("Le Troll Conteur" in availableCompanions(state)) " (Troll Conteur)" else ""}. Les adversaires et contextes proviennent de la table officielle (p. 42-43). Certains effets spéciaux restent manuels.", style = MaterialTheme.typography.bodySmall) }
         state.lastEncounter?.let { e ->
             item { HorizontalDivider() }
@@ -1690,6 +1797,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             "Navigation entre les écrans",
             "Planification manuelle d'un trajet sur la carte du livre",
             "Suivi des distances cumulées et validation d'arrivée",
+            "Podomètre optionnel (1 pas = 1 m), sessions pause/reprise, seuil de rencontre et suivi écran verrouillé",
             "Rencontres : table officielle Fitland (7D6), quantité, contexte et PV",
             "Arme active et bonus de contexte des gants de vétéran",
             "Historique des dés (7D6, quantité et contexte), et manipulation Mage/Moine",
@@ -1868,7 +1976,82 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
     }
 }
 
-private fun travel(s: AppState, km: Double): AppState {
+/** Distance maximale créditable avant le premier blocage : combat, arrivée ou étape. */
+private fun nextStepBoundary(s: AppState): Double? {
+    if (s.lastEncounter != null || s.destinationKm <= 0.0 || hasPendingWaypoint(s) ||
+        s.distance + 0.00000001 >= s.destinationKm) return null
+    val end = if (validGuidedRoute(s)) nextRouteEnd(s) else s.destinationKm
+    val spacing = if ("Le Troll Conteur" in availableCompanions(s)) 3.0 else 6.0
+    val checks = kotlin.math.floor((s.totalTravelKm + 0.00000001) / spacing).toInt()
+    val beforeEncounter = if (s.retreatActive) Double.POSITIVE_INFINITY
+        else ((checks + 1) * spacing - s.totalTravelKm).coerceAtLeast(0.0)
+    val remaining = minOf(end - s.distance, beforeEncounter)
+    return remaining.takeIf { it.isFinite() && it > 0.00000001 }
+}
+
+@Composable private fun StepTrackerPanel(
+    state: AppState, session: StepSnapshot, notice: String, busy: Boolean, hasSensor: Boolean,
+    start: () -> Unit, pause: () -> Unit, resume: () -> Unit, stop: () -> Unit
+) {
+    Card(border = BorderStroke(1.dp, Color(0xFF97784A))) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("👣 Podomètre — Version 2.0", style = MaterialTheme.typography.titleMedium)
+            Text("1 pas détecté = 1 mètre de progression (convention de jeu, pas une mesure GPS).",
+                style = MaterialTheme.typography.bodySmall)
+            if (state.character.profileType == "novice") {
+                Text("Mode novice : les trajets sont exprimés en minutes ; utilisez les boutons manuels.",
+                    color = Color(0xFFEBC582), style = MaterialTheme.typography.bodySmall)
+            } else if (!hasSensor) {
+                Text("Aucun capteur de pas compatible : le mode manuel reste disponible.",
+                    color = MaterialTheme.colorScheme.error)
+            } else {
+                val current = session.id == state.stepSessionId
+                val count = if (current) session.steps else 0
+                val cap = if (current) session.cap else 0
+                val status = if (current) session.status else "idle"
+                val statusText = when (status) {
+                    "starting" -> "Démarrage du capteur…"
+                    "running" -> if (session.ready) "En marche — écran verrouillable" else "En attente de la première mesure du capteur…"
+                    "paused" -> "En pause — aucun nouveau pas compté"
+                    "completed" -> "Seuil atteint ! Ouvre la rencontre ou confirme l'étape."
+                    "stopped" -> "Session arrêtée"
+                    "error" -> "Capteur indisponible"
+                    else -> "Prêt à commencer"
+                }
+                Text("$statusText · $count pas (${count} m)", style = MaterialTheme.typography.bodyMedium)
+                if (cap > 0) {
+                    LinearProgressIndicator(progress = { (count.toFloat() / cap).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth())
+                    Text("Limite de cette session : $cap pas, jusqu'au prochain arrêt du voyage.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                if (status == "error" && current && session.error.isNotBlank())
+                    Text(session.error, color = MaterialTheme.colorScheme.error)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (!busy && nextStepBoundary(state) != null) {
+                        Button(onClick = start) { Text("▶ Démarrer") }
+                    }
+                    if (status == "starting" || status == "running") {
+                        OutlinedButton(onClick = pause) { Text("⏸ Pause") }
+                    }
+                    if (status == "paused") {
+                        Button(onClick = resume) { Text("▶ Reprendre") }
+                    }
+                    if (status in listOf("starting", "running", "paused")) {
+                        OutlinedButton(onClick = stop) { Text("■ Arrêter") }
+                    }
+                }
+                if (busy) Text("Ajout manuel de kilomètres désactivé pendant cette session (anti-doublon).",
+                    style = MaterialTheme.typography.bodySmall)
+                if (notice.isNotBlank()) Text(notice, style = MaterialTheme.typography.bodySmall)
+                Text("Le téléphone doit rester sur vous. Le suivi est arrêté à chaque rencontre ou étape : les pas effectués ensuite ne sont pas crédités. Les restrictions d'énergie du téléphone peuvent affecter le comptage en arrière-plan.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+private fun travel(s: AppState, km: Double, viaSteps: Boolean = false): AppState {
     if (s.lastEncounter != null || s.destinationKm <= 0.0 || !km.isFinite() || km <= 0.0 || hasPendingWaypoint(s)) return s
     val old = s.distance
     val stageEnd = if (validGuidedRoute(s)) nextRouteEnd(s) else s.destinationKm
@@ -1889,7 +2072,7 @@ private fun travel(s: AppState, km: Double): AppState {
             if (encounter.effect.contains("quantité fixe", ignoreCase = true)) " — Barde audacieux : quantité fixe, pas de bonus."
             else " — Barde audacieux : quantité doublée et butin ×2,5."
         } else ""
-    ) + s.log else listOf("+${"%.2f".format(increment)} ${if (s.character.profileType == "novice") "minute(s)" else "km"} parcouru(s)" +
+    ) + s.log else if (viaSteps && !encounterTriggered) s.log else if (viaSteps) listOf("Podomètre : seuil de rencontre atteint (jet non applicable à cette zone).") + s.log else listOf("+${"%.2f".format(increment)} ${if (s.character.profileType == "novice") "minute(s)" else "km"} parcouru(s)" +
         if (encounterTriggered) " ; jet de rencontre ignoré (type indisponible)." else "") + s.log
     return s.copy(distance = newDistance, totalTravelKm = newTotal, lastEncounter = encounter,
         meditationActive = if (encounterTriggered) false else s.meditationActive,
@@ -2062,7 +2245,7 @@ private fun saveState(context: Context, state: AppState) {
         put("unlockedClasses", JSONArray(c.unlockedClasses)); put("completedAchievements", JSONArray(c.completedAchievements))
     }
     val obj = JSONObject().apply {
-        put("schema", 25); put("character", character); put("distance", state.distance)
+        put("schema", 26); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("totalTravelKm", state.totalTravelKm)
         put("encounters", state.encounters); put("retreatActive", state.retreatActive); put("retreatOrigin", state.retreatOrigin)
@@ -2071,6 +2254,8 @@ private fun saveState(context: Context, state: AppState) {
         put("oracleJourneyActive", state.oracleJourneyActive); put("oracleCombatActive", state.oracleCombatActive)
         put("paladinJourneyArmed", state.paladinJourneyArmed); put("paladinJourneyUsed", state.paladinJourneyUsed)
         put("companionBardJourney", state.companionBardJourney)
+        put("stepSessionId", state.stepSessionId); put("stepAppliedSteps", state.stepAppliedSteps)
+        put("stepLastClosedId", state.stepLastClosedId)
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
         put("equippedWeapon", state.equippedWeapon); put("equippedSupport", state.equippedSupport); put("meditationActive", state.meditationActive)
         put("vigorActive", state.vigorActive); put("quantumMode", state.quantumMode); put("illusionActive", state.illusionActive)
@@ -2165,6 +2350,9 @@ private fun loadState(context: Context): AppState {
             paladinJourneyArmed = obj.optBoolean("paladinJourneyArmed", false),
             paladinJourneyUsed = obj.optBoolean("paladinJourneyUsed", false),
             companionBardJourney = obj.optBoolean("companionBardJourney", false),
+            stepSessionId = obj.optString("stepSessionId", ""),
+            stepAppliedSteps = obj.optInt("stepAppliedSteps", 0).coerceAtLeast(0),
+            stepLastClosedId = obj.optString("stepLastClosedId", ""),
             claimedChapterLoot = strings("claimedChapterLoot", emptyList()).filter { title -> storyChapters.any { it.title == title } },
             manualChapterAccess = strings("manualChapterAccess", emptyList()).filter { title -> storyChapters.any { it.title == title && it.restricted } },
             equippedWeapon = obj.optString("equippedWeapon", ""), equippedSupport = obj.optString("equippedSupport", ""), meditationActive = obj.optBoolean("meditationActive", false),

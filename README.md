@@ -4,7 +4,7 @@ Application de fitness-RPG **hors ligne**, en Kotlin / Jetpack Compose, adaptée
 
 ## Version et historique
 
-- Version actuelle : **1.26.0** (`versionCode` **129**).
+- Version actuelle : **2.0.0** (`versionCode` **200**).
 - Source de vérité : `app/build.gradle.kts`, champs `versionName` et `versionCode`.
 - L'écran **Application** affiche automatiquement `BuildConfig.VERSION_NAME`, sans numéro codé en dur.
 - Historique des changements : [CHANGELOG.md](CHANGELOG.md). Carte et 28 tronçons : [CARTE-TRONCONS.md](CARTE-TRONCONS.md). Aucun fichier `VERSION-X.X.txt` n'est nécessaire.
@@ -26,6 +26,20 @@ La configuration de compilation est dans `.github/workflows/build-apk.yml`. Un A
 - Installer par-dessus une version signée avec **cette même clé** pour conserver les données locales.
 - Ne pas supprimer l'application avant la mise à jour : une désinstallation effacerait la sauvegarde locale.
 - Les clés de test sont incluses dans les sources pour le développement privé ; elles ne conviennent pas à une distribution de production.
+
+## Nouveauté v2.0 : podomètre hors ligne (Android)
+
+- **Mode facultatif** : démarrer un trajet dans l'onglet Aventure, puis utiliser le panneau **👣 Podomètre** ou les boutons manuels existants (vélo, tapis…). Les deux modes ne comptent pas simultanément afin d'éviter des doublons.
+- **Convention propre au jeu : 1 pas détecté = 1 mètre crédité**, sans GPS ; ce n'est pas une mesure scientifique de la distance réelle. Exemple : 150 pas = 0,150 km.
+- Le podomètre est réservé pour l'instant au **profil avancé**, car en mode novice les kilomètres de la carte sont convertis en **minutes**, ce qui n'est pas équivalent à des pas.
+- Le téléphone doit disposer du capteur Android **TYPE_STEP_COUNTER**, ou à défaut de **TYPE_STEP_DETECTOR**, et recevoir l'autorisation **Activité physique** sur Android 10+. Sur Android 13+, il demande aussi l'autorisation facultative de notifications pour faciliter le suivi.
+- La première mesure du capteur cumulatif sert de référence ; **attendre l'état « En marche »** avant de commencer. Certains capteurs émettent des résultats par lots. Avec un capteur absent, non autorisé ou inaccessible, les boutons manuels restent fonctionnels.
+- Une session utilise un **service Android au premier plan de type `health`**, avec une notification et des actions **Pause / Reprendre / Arrêter**. Elle peut continuer écran verrouillé, sous réserve des restrictions d'énergie du fabricant. Le service est lancé uniquement depuis une action utilisateur ; il n'est pas automatiquement redémarré après un reboot.
+- **Arrêt automatique au prochain seuil de rencontre** (6 km cumulés, ou 3 km avec Troll Conteur), **à l'étape guidée suivante ou à destination**. Les pas ultérieurs ne sont pas pris en compte tant que la rencontre/l'étape n'est pas résolue puis une nouvelle session lancée. Les lots de capteur sont plafonnés au bon seuil.
+- Sauvegarde en deux parties : `dof_steps_v2` pour les mesures de capteur ; `dof_save` pour l'aventure et les pas déjà appliqués. L'identifiant de session et le curseur de pas évitent de créditer les mêmes pas après rotation/relance. Réinitialiser le personnage efface les deux.
+- Après une interruption du service par le système, le comptage peut manquer des pas ; **il ne faut pas considérer les données comme un podomètre médical**. L'app reste utilisable en saisie manuelle.
+- Tests algorithmiques reproductibles : `kotlinc app/src/main/java/com/dungeonoffitness/app/StepLogic.kt tests/StepLogicTest.kt -include-runtime -d step-tests.jar && java -jar step-tests.jar`.
+- Voir [TESTS-V2.0.md](TESTS-V2.0.md) pour le test sur téléphone, notamment avec l'écran verrouillé.
 
 ## Fonctionnalités majeures
 
