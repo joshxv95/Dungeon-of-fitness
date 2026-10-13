@@ -1,2 +1,0 @@
-Dungeon of Fitness v1.19.0
-Barde solo : deux demi-trajets par jour, choix prudent/audacieux ; mode audacieux quantité x2 et récompense x2,5 au total (hors quantités fixes). Migration sauvegardes v1.18.
