@@ -1,3 +1,12 @@
+## 1.23.0 — Voyage guidé à étapes et seuils de rencontre
+- Suivi réel des étapes intermédiaires des trajets calculés depuis les 28 tronçons de la carte ; passage à confirmer, sans validation automatique du chapitre du livre.
+- Les distances raccourcies de l'Éclaireur et du Barde s'appliquent à chaque tronçon.
+- Progression bloquée à chaque jalon et à chaque seuil de 6 unités cumulées pour empêcher de sauter des rencontres.
+- Journal et accueil enrichis avec les étapes en cours et les passages déjà confirmés.
+- Fuite depuis un parcours guidé : retour vers le dernier jalon confirmé, sans générer de rencontre pendant le retour.
+- Parcours manuels et sauvegardes v1.22 préservés ; schéma de sauvegarde 22, versionCode 126.
+- Mécaniques de combat, butins, équipements et signature APK inchangés.
+
 ## 1.22.0 — Carte officielle, itinéraires et Cavalier automatisé
 - Carte de la page 51 intégrée hors ligne et consultable par zoom tactile.
 - Graphe de 28 liaisons directes transcrites depuis les pointillés et distances de la carte du Milieu du Disque-Fonte ; itinéraire le plus court et distance suggérée entre les villes reliées, sans raccourci via les zones à cadenas.

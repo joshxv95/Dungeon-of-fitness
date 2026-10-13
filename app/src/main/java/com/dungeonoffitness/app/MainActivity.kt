@@ -229,6 +229,11 @@ private data class AppState(
     val bardUses: Int = 0,
     val bardJourney: Boolean = false,
     val cavalierUsed: Boolean = false,
+    // Route guidée : jalons = départ + étapes + arrivée ; tronçons en unités réellement parcourues.
+    // L'index indique le tronçon en cours, sans valider automatiquement les chapitres du livre.
+    val routeStops: List<String> = emptyList(),
+    val routeLegKm: List<Double> = emptyList(),
+    val routeLegIndex: Int = 0,
     val quests: List<String> = listOf("Créer et suivre votre profil", "Tenir votre journal d'entraînement")
 )
 
@@ -331,13 +336,17 @@ fun DungeonApp() {
                                 }
                             }
                         },
-                        onPlan = { destination, km, scout, bardAudacious ->
-                            update(planJourney(state, destination, km, scout, bardAudacious))
+                        onPlan = { destination, km, scout, bardAudacious, followMap ->
+                            update(planJourney(state, destination, km, scout, bardAudacious, followMap))
                         },
+                        onCheckpoint = { update(confirmRouteCheckpoint(state)) },
                         onArrive = {
-                            update(state.copy(character = state.character.copy(location = state.destination),
-                                destination = "", destinationKm = 0.0, distance = 0.0, bardJourney = false, retreatActive = false, retreatOrigin = "",
-                                log = (listOf("Arrivée à ${state.destination}.") + state.log).take(100)))
+                            if (state.lastEncounter == null && state.destinationKm > 0.0 && state.distance + 0.00001 >= state.destinationKm) {
+                                update(state.copy(character = state.character.copy(location = state.destination),
+                                    destination = "", destinationKm = 0.0, distance = 0.0, bardJourney = false, retreatActive = false, retreatOrigin = "",
+                                    routeStops = emptyList(), routeLegKm = emptyList(), routeLegIndex = 0,
+                                    log = (listOf("Arrivée à ${state.destination}. Chapitre à valider selon le livre.") + state.log).take(100)))
+                            }
                         })
                     "character" -> CharacterScreen(state.character, onUpdate = { candidate ->
                         val existing = state.character.profileType
@@ -425,6 +434,10 @@ fun DungeonApp() {
             Text("Niveau ${state.character.level} · ${state.character.className} · Disciple de ${state.character.divinity}")
             Spacer(Modifier.height(10.dp)); Text("📍 ${state.character.location}  →  ${state.destination}")
             Text(if (state.destinationKm > 0.0) "Distance : ${"%.1f".format(state.distance)} / ${state.destinationKm} ${if (state.character.profileType == "novice") "min" else "km"}" else "Aucun trajet en cours")
+            if (validGuidedRoute(state)) {
+                Text("🧭 Étape ${state.routeLegIndex + 1}/${state.routeLegKm.size} : vers ${state.routeStops[state.routeLegIndex + 1]}",
+                    color = Color(0xFFEBC582), style = MaterialTheme.typography.bodySmall)
+            }
         } } }
         item { Button(onClick = start, modifier = Modifier.fillMaxWidth()) { Text("⚔ COMMENCER L'AVENTURE") } }
         item { Text("Dernier événement", style = MaterialTheme.typography.titleMedium) }
@@ -521,6 +534,29 @@ private fun mapRoute(origin: String, target: String): MapRoute? {
     return MapRoute(path.asReversed(), result)
 }
 
+// Chaque étape dispose d'une distance EFFECTIVE (déjà réduite pour Éclaireur/Barde).
+// Un itinéraire provenant de la v1.22 reste un trajet manuel si ces champs sont absents.
+private fun validGuidedRoute(s: AppState): Boolean =
+    !s.retreatActive && s.destinationKm > 0.0 && s.routeStops.size >= 2 &&
+        s.routeLegKm.size == s.routeStops.size - 1 &&
+        s.routeLegIndex in s.routeLegKm.indices &&
+        s.routeStops.last() == s.destination &&
+        s.routeStops[s.routeLegIndex] == s.character.location &&
+        s.routeLegKm.all { it > 0.0 && it.isFinite() } &&
+        kotlin.math.abs(s.routeLegKm.sum() - s.destinationKm) < 0.001
+
+private fun routeLegStart(s: AppState): Double = s.routeLegKm.take(s.routeLegIndex).sum()
+private fun nextRouteEnd(s: AppState): Double = s.routeLegKm.take(s.routeLegIndex + 1).sum()
+private fun hasPendingWaypoint(s: AppState): Boolean = validGuidedRoute(s) &&
+    s.routeLegIndex < s.routeLegKm.lastIndex && s.distance + 0.00001 >= nextRouteEnd(s)
+
+private fun confirmRouteCheckpoint(s: AppState): AppState {
+    if (s.lastEncounter != null || !hasPendingWaypoint(s)) return s
+    val reached = s.routeStops[s.routeLegIndex + 1]
+    return s.copy(character = s.character.copy(location = reached), routeLegIndex = s.routeLegIndex + 1,
+        log = (listOf("Passage à $reached (${s.routeLegIndex + 1}/${s.routeLegKm.size}) ; chapitre NON validé, trajet poursuivi vers ${s.destination}.") + s.log).take(100))
+}
+
 @Composable private fun OfficialMapViewer(onDismiss: () -> Unit) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
@@ -578,7 +614,8 @@ private fun mapRoute(origin: String, target: String): MapRoute? {
     onMeditate: () -> Unit,
     onUsePersuasion: () -> Unit,
     onUseConsumable: (String, String) -> Unit,
-    onPlan: (String, Double, Boolean, Boolean) -> Unit,
+    onPlan: (String, Double, Boolean, Boolean, Boolean) -> Unit,
+    onCheckpoint: () -> Unit,
     onArrive: () -> Unit
 ) {
     var selectedPlace by remember(state.character.location) {
@@ -586,6 +623,7 @@ private fun mapRoute(origin: String, target: String): MapRoute? {
     }
     var expanded by remember { mutableStateOf(false) }
     var distanceInput by remember(state.character.location) { mutableStateOf("") }
+    var followMap by remember(state.character.location) { mutableStateOf(false) }
     var showMap by remember { mutableStateOf(false) }
     var teleportExpanded by remember { mutableStateOf(false) }
     var teleportTarget by remember(state.character.location) { mutableStateOf(mapNeighbors(state.character.location).firstOrNull()?.first.orEmpty()) }
@@ -631,7 +669,9 @@ private fun mapRoute(origin: String, target: String): MapRoute? {
                         fitlandPlaces.filter { it != state.character.location }.forEach { place ->
                             DropdownMenuItem(text = { Text(place) }, onClick = {
                                 selectedPlace = place
-                                distanceInput = mapRoute(state.character.location, place)?.km?.toString().orEmpty()
+                                val found = mapRoute(state.character.location, place)
+                                distanceInput = found?.km?.toString().orEmpty()
+                                followMap = found != null && found.km > 0
                                 expanded = false
                             })
                         }
@@ -649,9 +689,20 @@ private fun mapRoute(origin: String, target: String): MapRoute? {
                             if (mapTrip.places.any { it in restrictedMapPlaces })
                                 Text("⚠️ Accès restreint sur cet itinéraire : vérifiez les conditions du chapitre dans le livre.",
                                     color = Color(0xFFF0B44E), style = MaterialTheme.typography.bodySmall)
-                            OutlinedButton(onClick = { distanceInput = mapTrip.km.toString() }) {
-                                Text("Utiliser ${mapTrip.km} km de la carte")
+                            OutlinedButton(onClick = {
+                                distanceInput = mapTrip.km.toString()
+                                followMap = true
+                            }) {
+                                Text("Utiliser ${mapTrip.km} km et suivre les étapes")
                             }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = followMap && distanceInput.replace(',', '.').toDoubleOrNull() == mapTrip.km.toDouble(),
+                                    onCheckedChange = { followMap = it },
+                                    enabled = distanceInput.replace(',', '.').toDoubleOrNull() == mapTrip.km.toDouble())
+                                Text("Suivre chaque étape du trajet sur la carte", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Text("Chaque passage intermédiaire sera confirmé sans valider le chapitre correspondant. Les rencontres restent tous les 6 km cumulés.",
+                                style = MaterialTheme.typography.bodySmall)
                         } else {
                             Text("Aucun trajet relié par les chemins transcrits depuis cette position. Vérifiez le livre p. 51 et renseignez la distance manuellement.",
                                 style = MaterialTheme.typography.bodySmall)
@@ -661,7 +712,7 @@ private fun mapRoute(origin: String, target: String): MapRoute? {
                     }
                 }
             }
-            item { OutlinedTextField(value = distanceInput, onValueChange = { distanceInput = it },
+            item { OutlinedTextField(value = distanceInput, onValueChange = { distanceInput = it; followMap = false },
                 label = { Text("Distance du trajet (km, modifiable)") }, singleLine = true,
                 modifier = Modifier.fillMaxWidth()) }
             item { Text("En profil novice, 1 km de carte représente 1 minute d'endurance. La saisie manuelle reste disponible.", style = MaterialTheme.typography.bodySmall) }
@@ -720,24 +771,59 @@ private fun mapRoute(origin: String, target: String): MapRoute? {
             }
             item { Button(enabled = (distanceInput.replace(',','.').toDoubleOrNull()?.let { it.isFinite() && it > 0.0 } == true) &&
                 selectedPlace != state.character.location && !pending,
-                onClick = { onPlan(selectedPlace, distanceInput.replace(',','.').toDouble(), scoutChosen, scoutChosen && bardAudacious) ; scoutChosen = false; bardAudacious = false },
+                onClick = {
+                    onPlan(selectedPlace, distanceInput.replace(',','.').toDouble(), scoutChosen, scoutChosen && bardAudacious, followMap)
+                    scoutChosen = false; bardAudacious = false; followMap = false
+                },
                 modifier = Modifier.fillMaxWidth()) { Text("Démarrer le trajet") } }
         } else {
             item { Text("Destination : ${state.destination} · ${"%.1f".format(state.destinationKm)} $unit") }
             item { LinearProgressIndicator(progress = { (state.distance / state.destinationKm).coerceIn(0.0,1.0).toFloat() }, modifier = Modifier.fillMaxWidth()) }
             item { Text("${"%.1f".format(state.distance)} / ${"%.1f".format(state.destinationKm)} $unit") }
+            val guided = validGuidedRoute(state)
+            if (guided) {
+                val end = nextRouteEnd(state)
+                val atWaypoint = hasPendingWaypoint(state)
+                item {
+                    Card(border = BorderStroke(1.dp, Color(0xFF97784A))) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            Text("🧭 Étapes de l'itinéraire", style = MaterialTheme.typography.titleMedium)
+                            Text("Étape ${state.routeLegIndex + 1}/${state.routeLegKm.size} : ${state.routeStops[state.routeLegIndex]} → ${state.routeStops[state.routeLegIndex + 1]}")
+                            Text("Jusqu'au prochain arrêt : ${"%.1f".format((end - state.distance).coerceAtLeast(0.0))} $unit")
+                            state.routeLegKm.forEachIndexed { i, d ->
+                                val marker = when {
+                                    i < state.routeLegIndex -> "✅"
+                                    i == state.routeLegIndex -> "📍"
+                                    else -> "○"
+                                }
+                                Text("$marker ${state.routeStops[i]} → ${state.routeStops[i + 1]} · ${"%.1f".format(d)} $unit",
+                                    style = MaterialTheme.typography.bodySmall)
+                            }
+                            Text("Confirmer une étape change la position sur la carte, sans jouer ni valider son chapitre.",
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+                if (atWaypoint) item {
+                    Button(onClick = onCheckpoint, enabled = !pending,
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text("Confirmer le passage à ${state.routeStops[state.routeLegIndex + 1]}")
+                    }
+                }
+            }
+            val canContinue = !pending && state.distance + 0.00001 < state.destinationKm && !hasPendingWaypoint(state)
             if (novice) {
-                item { Button(enabled = !pending && state.distance < state.destinationKm,
+                item { Button(enabled = canContinue,
                     onClick = { onTravel(1.0) }, modifier = Modifier.fillMaxWidth()) { Text("+ 1 minute d'endurance") } }
-                item { OutlinedButton(enabled = !pending && state.distance < state.destinationKm,
+                item { OutlinedButton(enabled = canContinue,
                     onClick = { onTravel(5.0) }, modifier = Modifier.fillMaxWidth()) { Text("+ 5 minutes d'endurance") } }
             } else {
-                item { Button(enabled = !pending && state.distance < state.destinationKm,
+                item { Button(enabled = canContinue,
                     onClick = { onTravel(1.0) }, modifier = Modifier.fillMaxWidth()) { Text("+ 1 km parcouru") } }
-                item { OutlinedButton(enabled = !pending && state.distance < state.destinationKm,
+                item { OutlinedButton(enabled = canContinue,
                     onClick = { onTravel(0.1) }, modifier = Modifier.fillMaxWidth()) { Text("+ 100 m") } }
             }
-            if (state.distance >= state.destinationKm && !pending) {
+            if (state.distance + 0.00001 >= state.destinationKm && !pending && !hasPendingWaypoint(state)) {
                 item { Button(onClick = onArrive, modifier = Modifier.fillMaxWidth()) { Text("Valider l'arrivée à ${state.destination}") } }
             }
         }
@@ -1364,25 +1450,53 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
     }
 }
 
-@Composable private fun Journal(state: AppState) { LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { item { Text("Journal d'aventure", style = MaterialTheme.typography.headlineSmall) }; items(state.log) { Text(it) }; item { Text("Quêtes") }; items(state.quests) { Text("□ $it") } } }
+@Composable private fun Journal(state: AppState) {
+    LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item { Text("Journal d'aventure", style = MaterialTheme.typography.headlineSmall) }
+        if (validGuidedRoute(state)) item {
+            Card(border = BorderStroke(1.dp, Color(0xFF97784A))) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("🧭 Voyage en cours", style = MaterialTheme.typography.titleMedium)
+                    Text("De ${state.routeStops.first()} vers ${state.destination}")
+                    Text("Étape ${state.routeLegIndex + 1}/${state.routeLegKm.size} · ${"%.1f".format(state.distance)} / ${"%.1f".format(state.destinationKm)} ${if (state.character.profileType == "novice") "min" else "km"}")
+                    Text("Prochain passage : ${state.routeStops[state.routeLegIndex + 1]}")
+                }
+            }
+        }
+        items(state.log) { Text(it) }
+        item { Text("Quêtes") }
+        items(state.quests) { Text("□ $it") }
+    }
+}
 
 private fun travel(s: AppState, km: Double): AppState {
+    if (s.lastEncounter != null || s.destinationKm <= 0.0 || !km.isFinite() || km <= 0.0 || hasPendingWaypoint(s)) return s
     val old = s.distance
-    val newDistance = (old + km).coerceAtMost(s.destinationKm)
-    val oldChecks = kotlin.math.floor(s.totalTravelKm / 6.0).toInt()
-    val actualProgress = newDistance - old
-    val newTotal = s.totalTravelKm + if (s.retreatActive) 0.0 else actualProgress
-    val newChecks = kotlin.math.floor(newTotal / 6.0).toInt()
-    val encounter = if (!s.retreatActive && newChecks > oldChecks) generateEncounter(s.equippedWeapon, s.equippedSupport, s.character, s.bardJourney) else s.lastEncounter
-    val logs = if (encounter != null && !s.retreatActive && newChecks > oldChecks) listOf(
+    val stageEnd = if (validGuidedRoute(s)) nextRouteEnd(s) else s.destinationKm
+    val oldChecks = kotlin.math.floor((s.totalTravelKm + 0.00000001) / 6.0).toInt()
+    val beforeEncounter = if (s.retreatActive) Double.POSITIVE_INFINITY
+        else ((oldChecks + 1) * 6.0 - s.totalTravelKm).coerceAtLeast(0.0)
+    // Une action ne peut ni sauter une étape ni franchir plusieurs seuils de rencontre.
+    val increment = minOf(km, (stageEnd - old).coerceAtLeast(0.0), beforeEncounter)
+    if (increment <= 0.00000001) return s
+    val newDistance = (old + increment).coerceAtMost(s.destinationKm)
+    val newTotal = s.totalTravelKm + if (s.retreatActive) 0.0 else increment
+    val newChecks = kotlin.math.floor((newTotal + 0.00000001) / 6.0).toInt()
+    val encounterTriggered = !s.retreatActive && newChecks > oldChecks
+    val encounter = if (encounterTriggered) generateEncounter(s.equippedWeapon, s.equippedSupport, s.character, s.bardJourney) else s.lastEncounter
+    val logs = if (encounter != null && encounterTriggered) listOf(
         "Rencontre : ${encounter.name} ×${encounter.quantity}" + if (s.bardJourney) {
             if (encounter.effect.contains("quantité fixe", ignoreCase = true)) " — Barde audacieux : quantité fixe, pas de bonus."
             else " — Barde audacieux : quantité doublée et butin ×2,5."
         } else ""
-    ) + s.log else listOf("+${"%.1f".format(km)} km parcouru") + s.log
-    return s.copy(distance = newDistance, totalTravelKm = newTotal, lastEncounter = encounter, meditationActive = if (newChecks > oldChecks) false else s.meditationActive, warriorActive = if (newChecks > oldChecks) false else s.warriorActive,
-        vigorActive = if (newChecks > oldChecks) false else s.vigorActive,
-        quantumMode = if (newChecks > oldChecks) "" else s.quantumMode, encounters = s.encounters + if (!s.retreatActive && newChecks > oldChecks) 1 else 0, log = logs.take(100))
+    ) + s.log else listOf("+${"%.2f".format(increment)} ${if (s.character.profileType == "novice") "minute(s)" else "km"} parcouru(s)" +
+        if (encounterTriggered) " ; jet de rencontre ignoré (type indisponible)." else "") + s.log
+    return s.copy(distance = newDistance, totalTravelKm = newTotal, lastEncounter = encounter,
+        meditationActive = if (encounterTriggered) false else s.meditationActive,
+        warriorActive = if (encounterTriggered) false else s.warriorActive,
+        vigorActive = if (encounterTriggered) false else s.vigorActive,
+        quantumMode = if (encounterTriggered) "" else s.quantumMode,
+        encounters = s.encounters + if (encounterTriggered) 1 else 0, log = logs.take(100))
 }
 
 private data class EncounterRule(val name: String, val reward: Int, val hp: Int, val zones: String, val effect: String)
@@ -1515,11 +1629,14 @@ private fun useHunterAbility(s: AppState): AppState = s.lastEncounter?.let { e -
 private fun fleeEncounter(s: AppState, towardDestination: Boolean): AppState = s.lastEncounter?.let { e ->
     if (e.safe || s.retreatActive) return@let s
     val acrobatForward = towardDestination && s.character.profileType == "advanced" && s.character.className == "Acrobate" && s.destinationKm > 0.0
-    val returnDistance = if (acrobatForward) (s.destinationKm - s.distance).coerceAtLeast(0.0) else s.distance.coerceAtLeast(0.0)
+    val currentStageStart = if (validGuidedRoute(s)) routeLegStart(s) else 0.0
+    val returnDistance = if (acrobatForward) (s.destinationKm - s.distance).coerceAtLeast(0.0)
+        else (s.distance - currentStageStart).coerceAtLeast(0.0)
     val start = if (acrobatForward) s.destination else s.character.location
     s.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, warriorActive = false,
         retreatActive = returnDistance > 0.0, retreatOrigin = start,
         destination = start, destinationKm = returnDistance, distance = 0.0,
+        routeStops = emptyList(), routeLegKm = emptyList(), routeLegIndex = 0,
         log = (listOf("Fuite devant ${e.name} : ${if (acrobatForward) "destination choisie (Acrobate)" else "retour"} de ${"%.1f".format(returnDistance)} unité(s) vers $start, sans rencontre et sans butin. Exercices de contexte confirmés.") + s.log).take(100))
 } ?: s
 
@@ -1543,10 +1660,11 @@ private fun saveState(context: Context, state: AppState) {
         put("unlockedClasses", JSONArray(c.unlockedClasses)); put("completedAchievements", JSONArray(c.completedAchievements))
     }
     val obj = JSONObject().apply {
-        put("schema", 21); put("character", character); put("distance", state.distance)
+        put("schema", 22); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("totalTravelKm", state.totalTravelKm)
         put("encounters", state.encounters); put("retreatActive", state.retreatActive); put("retreatOrigin", state.retreatOrigin)
+        put("routeStops", JSONArray(state.routeStops)); put("routeLegKm", JSONArray(state.routeLegKm)); put("routeLegIndex", state.routeLegIndex)
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
         put("equippedWeapon", state.equippedWeapon); put("equippedSupport", state.equippedSupport); put("meditationActive", state.meditationActive)
         put("vigorActive", state.vigorActive); put("quantumMode", state.quantumMode); put("illusionActive", state.illusionActive)
@@ -1628,6 +1746,9 @@ private fun loadState(context: Context): AppState {
             totalTravelKm = obj.optDouble("totalTravelKm", obj.optDouble("distance", 0.0)),
             encounters = obj.optInt("encounters", 0), lastEncounter = encounter,
             retreatActive = obj.optBoolean("retreatActive", false), retreatOrigin = obj.optString("retreatOrigin", ""),
+            routeStops = strings("routeStops", emptyList()),
+            routeLegKm = obj.optJSONArray("routeLegKm")?.let { arr -> (0 until arr.length()).map { i -> arr.optDouble(i, 0.0) } } ?: emptyList(),
+            routeLegIndex = obj.optInt("routeLegIndex", 0),
             equippedWeapon = obj.optString("equippedWeapon", ""), equippedSupport = obj.optString("equippedSupport", ""), meditationActive = obj.optBoolean("meditationActive", false),
             vigorActive = obj.optBoolean("vigorActive", false), quantumMode = obj.optString("quantumMode", ""), illusionActive = obj.optBoolean("illusionActive", false),
             log = strings("log", baseState.log), inventory = strings("inventory", baseState.inventory),
@@ -1643,13 +1764,19 @@ private fun dailyState(s: AppState): AppState {
     return if (s.abilityDay == today) s else s.copy(abilityDay = today, scoutUses = 0, warriorUsed = false, bardUses = 0, cavalierUsed = false)
 }
 
-private fun planJourney(state: AppState, destination: String, km: Double, scout: Boolean, bardAudacious: Boolean): AppState {
+private fun planJourney(state: AppState, destination: String, km: Double, scout: Boolean, bardAudacious: Boolean, followMap: Boolean): AppState {
     val s = dailyState(state)
     if (!km.isFinite() || km <= 0.0 || destination == s.character.location || destination !in fitlandPlaces || s.lastEncounter != null || s.destinationKm > 0.0) return s
     val allowed = scout && s.character.profileType == "advanced" && s.character.className == "Éclaireur" && s.scoutUses < 2
     val bard = scout && s.character.profileType == "advanced" && s.character.className == "Barde" && s.bardUses < 2
     val effective = if (allowed || bard) km / 2.0 else km
     val audacious = bard && bardAudacious
+    val route = if (followMap) mapRoute(s.character.location, destination)?.takeIf { kotlin.math.abs(it.km - km) < 0.00001 } else null
+    val stops = route?.places ?: emptyList()
+    val legs = if (route != null) route.places.zipWithNext { a, b ->
+        (mapNeighbors(a).firstOrNull { it.first == b }?.second ?: 0).toDouble() * (if (allowed || bard) 0.5 else 1.0)
+    } else emptyList()
+    val guided = legs.isNotEmpty() && legs.all { it > 0.0 } && kotlin.math.abs(legs.sum() - effective) < 0.00001
     val note = when {
         allowed -> " (Éclaireur : demi-distance, ${s.scoutUses + 1}/2 aujourd’hui)"
         audacious -> " (Barde, règle maison : demi-distance ${s.bardUses + 1}/2 ; mode audacieux, quantité ×2, butin ×2,5)"
@@ -1660,7 +1787,10 @@ private fun planJourney(state: AppState, destination: String, km: Double, scout:
         scoutUses = s.scoutUses + if (allowed) 1 else 0,
         bardUses = s.bardUses + if (bard) 1 else 0,
         bardJourney = audacious,
-        log = (listOf("Nouveau trajet vers $destination : ${"%.2f".format(effective)} km$note.") + s.log).take(100))
+        routeStops = if (guided) stops else emptyList(),
+        routeLegKm = if (guided) legs else emptyList(),
+        routeLegIndex = 0,
+        log = (listOf("Nouveau trajet vers $destination : ${"%.2f".format(effective)} km$note${if (guided) " · ${legs.size} étape(s) guidée(s), sans validation des chapitres." else " · suivi manuel."}") + s.log).take(100))
 }
 
 private fun activateWarrior(state: AppState): AppState {
@@ -1682,6 +1812,7 @@ private fun useCavalierAbility(state: AppState, target: String): AppState {
         mapNeighbors(s.character.location).none { it.first == target }) return s
     return s.copy(character = s.character.copy(location = target), cavalierUsed = true,
         bardJourney = false, destination = "", destinationKm = 0.0, distance = 0.0,
+        routeStops = emptyList(), routeLegKm = emptyList(), routeLegIndex = 0,
         log = (listOf("Cavalier : téléportation depuis ${s.character.location} vers $target (liaison directe confirmée par carte p. 51), utilisation quotidienne consommée. Aucun km ni rencontre.") + s.log).take(100))
 }
 

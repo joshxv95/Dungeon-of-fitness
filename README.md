@@ -4,7 +4,7 @@ Application de fitness-RPG **hors ligne**, en Kotlin / Jetpack Compose, adaptée
 
 ## Version et historique
 
-- Version actuelle : **1.22.0** (`versionCode` **125**).
+- Version actuelle : **1.23.0** (`versionCode` **126**).
 - Source de vérité : `app/build.gradle.kts`, champs `versionName` et `versionCode`.
 - L'écran **Application** affiche automatiquement `BuildConfig.VERSION_NAME`, sans numéro codé en dur.
 - Historique des changements : [CHANGELOG.md](CHANGELOG.md). Carte et 28 tronçons : [CARTE-TRONCONS.md](CARTE-TRONCONS.md). Aucun fichier `VERSION-X.X.txt` n'est nécessaire.
@@ -60,3 +60,12 @@ Consulter le livre pour les règles officielles. Les écarts doivent être indiq
 - **Trajet :** choisir une destination pour voir un itinéraire depuis le lieu actuel ; le trajet calculé propose une distance que l’on peut conserver ou corriger. Les zones à accès restreint ne sont pas automatiquement débloquées.
 - **Cavalier :** son sélecteur présente exclusivement les zones immédiatement voisines, selon les tronçons visibles sur cette carte. Une destination éloignée ne peut pas être téléportée, même avec un appel direct au code.
 - **Île des poids guidés :** aucun tronçon pointillé sur la carte p. 51 ne la relie ; cette zone nécessite une saisie manuelle selon le scénario.
+
+### Nouveautés 1.23.0 — Étapes guidées et rencontres
+
+- Lorsqu'un trajet est proposé depuis la carte, l'option **Suivre chaque étape** décompose la distance en tronçons. Le trajet attend une confirmation à chaque ville intermédiaire, sans valider le chapitre narratif de cette zone.
+- Les Éclaireurs et Bardes à demi-distance voient la réduction répartie sur **chaque tronçon**, sans perte ni double-comptage des kilomètres.
+- Chaque saisie de progression est plafonnée au prochain arrêt **ou** au prochain multiple cumulé de 6 km pour empêcher de sauter une rencontre, même avec une avancée importante.
+- Le journal et l'accueil affichent la prochaine étape, les passages sont enregistrés ; en cas de fuite, le retour part du **dernier point d'étape confirmé**.
+- Pour les trajets débutés avant la v1.23, le suivi reste manuel afin de ne pas inventer d'étapes au milieu d'une sauvegarde.
+- Pour modifier la distance proposée, la saisie manuelle désactive le suivi automatique.

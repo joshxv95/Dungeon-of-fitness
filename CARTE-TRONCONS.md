@@ -42,3 +42,9 @@ Les distances ci-dessous ont été relevées **sur les chemins en pointillés** 
 - Les accès restreints sont : Île des poids guidés, Antre de Mollefesse, Falaises Olympiques, Ruines du Golem, Temple de la Prophétie et Caverne des Nuages sans fin. L'application avertit mais **ne valide pas les conditions d'entrée**.
 - **Île des poids guidés** : la carte ne montre pas de trajet pointillé la reliant à un autre point. L'application propose seulement la saisie manuelle si le scénario justifie un déplacement.
 - Le logiciel n'invente pas de routes ni de vitesses réelles : la distance proposée est celle du graphe de la carte, pas un itinéraire GPS.
+
+## v1.23 — Étapes guidées
+
+Sur un trajet planifié à partir du graphe, l'application affiche chaque tronçon et attend la confirmation de passage à chaque zone intermédiaire. Cette confirmation **ne débloque ni ne termine** le chapitre de la zone. L'utilisateur doit respecter les accès et conditions du livre.
+
+Un trajet raccourci par l'Éclaireur ou le Barde conserve les étapes mais divise la distance de chacun des tronçons par deux. La saisie manuelle reste possible et ne force aucun passage automatique. Lors d'une fuite sur un itinéraire guidé, le dernier jalon confirmé devient le point de retour.
