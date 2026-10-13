@@ -198,7 +198,7 @@ private fun attackDamage(weapon: Weapon, count: Int, inventory: List<String>, pa
     return ((weapon.damage.toLong() * count + bonus) * (if (vigorActive) 2L else 1L)).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 }
 
-private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String, val roll: Int = 0, val remainingHp: Int = hp * quantity, val effect: String = "", val safe: Boolean = false, val contextDie: Int = 0, val contextBonus: Int = 0, val contextWeapon: String = "", val initialQuantity: Int = quantity, val illusionDie: Int = 0, val enemyHp: List<Int> = emptyList(), val hunterUsed: Boolean = false, val mysticUsed: Boolean = false, val mysticDescription: String = "")
+private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String, val roll: Int = 0, val remainingHp: Int = hp * quantity, val effect: String = "", val safe: Boolean = false, val contextDie: Int = 0, val contextBonus: Int = 0, val contextWeapon: String = "", val initialQuantity: Int = quantity, val illusionDie: Int = 0, val enemyHp: List<Int> = emptyList(), val hunterUsed: Boolean = false, val mysticUsed: Boolean = false, val mysticDescription: String = "", val typeDice: List<Int> = emptyList(), val quantityDie: Int = 0)
 
 private data class AppState(
     val character: Character = Character(),
@@ -224,6 +224,7 @@ private data class AppState(
     val warriorActive: Boolean = false,
     val bardUses: Int = 0,
     val bardJourney: Boolean = false,
+    val cavalierUsed: Boolean = false,
     val quests: List<String> = listOf("Créer et suivre votre profil", "Tenir votre journal d'entraînement")
 )
 
@@ -277,7 +278,8 @@ fun DungeonApp() {
                         onSkip = { update(skipEncounter(state)) },
                         onFlee = { towardDestination -> update(fleeEncounter(state, towardDestination)) },
                         onHunt = { update(useHunterAbility(state)) },
-                        onMystic = { delta -> update(useMysticContext(state, delta)) },
+                        onMystic = { kind, dieIndex, delta -> update(useMysticDie(state, kind, dieIndex, delta)) },
+                        onCavalier = { place -> update(useCavalierAbility(state, place)) },
                         onMeditate = {
                             val e = state.lastEncounter
                             if (e != null && !e.safe && "Manuel de méditation" in state.inventory && !state.meditationActive)
@@ -385,8 +387,8 @@ fun DungeonApp() {
                     "journal" -> Journal(state)
                     "application" -> ApplicationInfo(state, onResetDailyTests = {
                         val current = dailyState(state)
-                        update(current.copy(scoutUses = 0, bardUses = 0, warriorUsed = false,
-                            log = (listOf("MODE TEST : compteurs quotidiens Éclaireur, Barde et Guerrier remis à zéro (sans modifier l’aventure).") + current.log).take(100)))
+                        update(current.copy(scoutUses = 0, bardUses = 0, warriorUsed = false, cavalierUsed = false,
+                            log = (listOf("MODE TEST : compteurs quotidiens Éclaireur, Barde, Guerrier et Cavalier remis à zéro (sans modifier l’aventure).") + current.log).take(100)))
                     })
                     else -> Home(state) { tab = "adventure" }
                 }
@@ -447,7 +449,8 @@ private val fitlandPlaces = listOf(
     onSkip: () -> Unit,
     onFlee: (Boolean) -> Unit,
     onHunt: () -> Unit,
-    onMystic: (Int) -> Unit,
+    onMystic: (String, Int, Int) -> Unit,
+    onCavalier: (String) -> Unit,
     onMeditate: () -> Unit,
     onUsePersuasion: () -> Unit,
     onUseConsumable: (String, String) -> Unit,
@@ -459,6 +462,9 @@ private val fitlandPlaces = listOf(
     var distanceInput by remember { mutableStateOf("") }
     var scoutChosen by remember { mutableStateOf(false) }
     var bardAudacious by remember { mutableStateOf(false) }
+    var cavalierAdjacencyConfirmed by remember { mutableStateOf(false) }
+    var mysticKind by remember(state.lastEncounter?.roll, state.lastEncounter?.name) { mutableStateOf("Contexte") }
+    var selectedTypeDie by remember(state.lastEncounter?.roll, state.lastEncounter?.name) { mutableIntStateOf(0) }
     var monkPrayerConfirmed by remember(state.lastEncounter?.roll, state.lastEncounter?.contextDie) { mutableStateOf(false) }
     var damageInput by remember { mutableStateOf("") }
     var selectedWeapon by remember { mutableStateOf("") }
@@ -477,8 +483,9 @@ private val fitlandPlaces = listOf(
         if (state.character.profileType == "advanced" && state.character.className == "Acrobate") item { Text("Acrobate (livre p. 41) : +2 au jet de contexte ; en cas de fuite, retour au départ OU poursuite vers la destination.") }
         if (state.character.profileType == "advanced" && state.character.className == "Chasseur") item { Text("Chasseur (livre p. 41) : peut réduire de 1 le dé de quantité d’une rencontre choisie pendant un déplacement.") }
         if (state.character.profileType == "advanced" && state.character.className == "Éclaireur") item { Text("Éclaireur : distance divisée par 2 pour un déplacement, deux fois par jour. Utilisations restantes : ${2 - dailyState(state).scoutUses}.") }
-        if (state.character.profileType == "advanced" && state.character.className == "Mage") item { Text("Mage (p. 41) : ajuster un dé de rencontre de ±1. Ajustement du contexte disponible dans cette version.") }
-        if (state.character.profileType == "advanced" && state.character.className == "Moine") item { Text("Moine (p. 41) : ajuster un dé de rencontre de ±1 ou ±2 contre une Prière. Ajustement du contexte disponible dans cette version.") }
+        if (state.character.profileType == "advanced" && state.character.className == "Mage") item { Text("Mage (p. 41–42) : modifier de ±1 un dé de type, de quantité ou de contexte avant le combat.") }
+        if (state.character.profileType == "advanced" && state.character.className == "Moine") item { Text("Moine (p. 41–42) : modifier de ±1 ou ±2 un dé de type, de quantité ou de contexte contre une Prière.") }
+        if (state.character.profileType == "advanced" && state.character.className == "Cavalier") item { Text("Cavalier (livre p. 41) : téléportation vers une zone adjacente, une fois par jour. Vérification de l’adjacence sur la carte p. 51.") }
         if (state.character.profileType == "advanced" && state.character.className == "Barde") item { Text("Barde (règle maison solo) : distance ÷2 deux fois par jour. Mode prudent : quantité et butin normaux ; mode audacieux : quantité ×2 et butin total ×2,5. Utilisations restantes : ${2 - dailyState(state).bardUses}.") }
         if (state.character.profileType == "advanced" && state.character.className == "Guerrier") item { Text("Guerrier : double les dégâts d’une rencontre contre une Prière, une fois par jour. ${if (dailyState(state).warriorUsed) "Déjà utilisée aujourd’hui." else "Disponible."}") }
         if (state.retreatActive) item { Text("RETOUR DE FUITE : rejoignez ${state.retreatOrigin}. Aucune nouvelle rencontre pendant ce trajet.", color = MaterialTheme.colorScheme.error) }
@@ -499,6 +506,25 @@ private val fitlandPlaces = listOf(
                 label = { Text("Distance sur la carte (km)") }, singleLine = true,
                 modifier = Modifier.fillMaxWidth()) }
             item { Text("Reporte la distance indiquée sur la carte du livre, page 51. Les itinéraires ne sont pas encore calculés automatiquement.") }
+            if (state.character.profileType == "advanced" && state.character.className == "Cavalier") {
+                item {
+                    val ready = !dailyState(state).cavalierUsed && selectedPlace != state.character.location && !pending
+                    Card(border = BorderStroke(1.dp, Color(0xFF97784A))) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("🐎 Téléportation du Cavalier", style = MaterialTheme.typography.titleMedium)
+                            Text(if (dailyState(state).cavalierUsed) "Pouvoir déjà utilisé aujourd’hui." else "Une fois par jour : rejoindre instantanément une zone adjacente, sans kilomètres ni rencontre.")
+                            Text("La carte officielle n’est pas encore numérisée : vérifie que ${selectedPlace} est directement adjacente à ${state.character.location} (livre p. 51).")
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = cavalierAdjacencyConfirmed, onCheckedChange = { cavalierAdjacencyConfirmed = it }, enabled = ready)
+                                Text("J’ai vérifié l’adjacence sur la carte officielle")
+                            }
+                            Button(onClick = { onCavalier(selectedPlace); cavalierAdjacencyConfirmed = false },
+                                enabled = ready && cavalierAdjacencyConfirmed,
+                                modifier = Modifier.fillMaxWidth()) { Text("Téléporter à $selectedPlace (1/jour)") }
+                        }
+                    }
+                }
+            }
             if (state.character.profileType == "advanced" && state.character.className in listOf("Éclaireur", "Barde")) item {
                 val bard = state.character.className == "Barde"
                 val available = if (bard) dailyState(state).bardUses < 2 else dailyState(state).scoutUses < 2
@@ -567,17 +593,50 @@ private val fitlandPlaces = listOf(
                 if (e.context == "Une embuscade !") Text("Attention : la durée d’utilisation des objets est doublée. Pour les armes à durée, chaque tranche doit durer deux fois plus longtemps ; les dégâts par tranche restent identiques.")
                 if (e.effect.isNotBlank()) Text("Effet immédiat : ${e.effect}")
                 if (e.mysticDescription.isNotBlank()) Text("Pouvoir de classe : ${e.mysticDescription}")
-                if (state.character.profileType == "advanced" && state.character.className in listOf("Mage", "Moine") && !e.mysticUsed && e.contextDie > 0 && encounterHp(e).all { it == e.hp }) {
-                    Text(if (state.character.className == "Moine") "Moine : effectuez une Prière avant de modifier ce dé de contexte (p. 41)." else "Mage : modifiez le dé de contexte de ±1 (p. 41).")
+                if (state.character.profileType == "advanced" && state.character.className in listOf("Mage", "Moine") && !e.mysticUsed && encounterHp(e).all { it == e.hp } && !e.hunterUsed && !state.illusionActive) {
+                    Text("🔮 Manipulation d’un dé de rencontre (livre p. 41–42)", style = MaterialTheme.typography.titleMedium)
+                    Text(if (state.character.className == "Moine") "Moine : une Prière pour modifier un dé de ±1 ou ±2." else "Mage : modifier gratuitement un seul dé de ±1.")
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        listOf("Type", "Quantité", "Contexte").forEach { kind ->
+                            OutlinedButton(onClick = { mysticKind = kind }, enabled = when (kind) {
+                                "Type" -> e.typeDice.size == 7
+                                "Quantité" -> e.quantityDie in 1..6 && !e.effect.contains("quantité fixe", ignoreCase = true)
+                                else -> e.contextDie in 1..6
+                            }) { Text(if (mysticKind == kind) "● $kind" else kind) }
+                        }
+                    }
+                    if (e.typeDice.size == 7) Text("Type : ${e.typeDice.joinToString(" + ")} = ${e.roll}")
+                    else Text("Dés de type non enregistrés pour cette ancienne rencontre.", style = MaterialTheme.typography.bodySmall)
+                    if (e.quantityDie > 0) Text("Quantité : dé ${e.quantityDie}${if (e.roll == 7) " × 10" else ""}${if (state.bardJourney) " × 2 (Barde)" else ""}")
+                    else Text("Dé de quantité absent (rencontre fixe ou ancienne sauvegarde).", style = MaterialTheme.typography.bodySmall)
+                    val targetDie = when (mysticKind) {
+                        "Type" -> e.typeDice.getOrNull(selectedTypeDie) ?: 0
+                        "Quantité" -> e.quantityDie
+                        else -> e.contextDie
+                    }
+                    if (mysticKind == "Type" && e.typeDice.size == 7) {
+                        Text("Choisir le dé de type à modifier :")
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            e.typeDice.forEachIndexed { index, die ->
+                                OutlinedButton(onClick = { selectedTypeDie = index }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
+                                    Text("${if (selectedTypeDie == index) "●" else "○"} $die")
+                                }
+                            }
+                        }
+                    }
+                    if (targetDie in 1..6) Text("Dé sélectionné : $targetDie. Le résultat doit rester compris entre 1 et 6.")
                     if (state.character.className == "Moine") Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = monkPrayerConfirmed, onCheckedChange = { monkPrayerConfirmed = it })
-                        Text("J’ai effectué la Prière")
+                        Text("J’ai effectué une Prière")
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         val deltas = if (state.character.className == "Moine") listOf(-2, -1, 1, 2) else listOf(-1, 1)
-                        deltas.forEach { d -> OutlinedButton(onClick = { onMystic(d) }, enabled = (e.contextDie + d) in 1..6 && (state.character.className != "Moine" || monkPrayerConfirmed)) { Text(if (d > 0) "+$d" else "$d") } }
+                        deltas.forEach { d -> OutlinedButton(onClick = { onMystic(mysticKind, selectedTypeDie, d); monkPrayerConfirmed = false },
+                            enabled = (targetDie + d) in 1..6 && (state.character.className != "Moine" || monkPrayerConfirmed)) {
+                            Text(if (d > 0) "+$d" else "$d")
+                        } }
                     }
-                    Text("Les modifications des dés de type et de quantité seront intégrées séparément ; le livre permet de modifier un dé de rencontre, pas uniquement le contexte.", style = MaterialTheme.typography.bodySmall)
+                    Text("Une modification par rencontre (convention d’interface). Les rencontres hors Fitland restent ignorées comme dans la génération actuelle.", style = MaterialTheme.typography.bodySmall)
                 }
                 if (state.character.profileType == "advanced" && state.character.className == "Chasseur" && !e.safe) {
                     val unhurt = encounterHp(e).all { it == e.hp }
@@ -836,7 +895,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         }
         item { HorizontalDivider() }
         if (profileLocked) {
-            item { Text("Caractéristiques", style = MaterialTheme.typography.titleMedium) }
+            item { Text("Caractéristiques · jauges sur 10", style = MaterialTheme.typography.titleMedium) }
             if (c.profileType == "novice") {
                 item { StatRow("Vigueur", c.vigour) }; item { StatRow("Résistance", c.resistance) }; item { StatRow("Adaptation", c.adaptation) }
             } else {
@@ -944,14 +1003,31 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         item { Text("Une confirmation sera demandée avant d'effacer les données.", style = MaterialTheme.typography.bodySmall) }
     }
 }
-@Composable private fun StatRow(name: String, value: Int) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(name); Text(value.toString(), style = MaterialTheme.typography.titleMedium) } }
+@Composable private fun StatRow(name: String, value: Int) {
+    val statColor = when (name) {
+        "Force", "Vigueur" -> Color(0xFFE28669)
+        "Endurance", "Résistance" -> Color(0xFF6FC4A8)
+        "Agilité", "Adaptation" -> Color(0xFFE8C46F)
+        "Dextérité" -> Color(0xFF84B4E6)
+        else -> Color(0xFFB69AE5)
+    }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(name)
+            Text("$value / 10", color = statColor, fontWeight = FontWeight.Bold)
+        }
+        LinearProgressIndicator(progress = { (value.toFloat() / 10f).coerceIn(0f, 1f) },
+            modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(8.dp)),
+            color = statColor, trackColor = Color(0xFF302B35))
+    }
+}
 
 @Composable private fun ApplicationInfo(state: AppState, onResetDailyTests: () -> Unit) {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
         item { Text("Dungeon of Fitness · Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleLarge) }
         item { Text("Mode test — capacités quotidiennes", style = MaterialTheme.typography.titleMedium) }
-        item { Text("Éclaireur : ${dailyState(state).scoutUses}/2 · Barde : ${dailyState(state).bardUses}/2 · Guerrier : ${if (dailyState(state).warriorUsed) "utilisé" else "disponible"}.") }
+        item { Text("Éclaireur : ${dailyState(state).scoutUses}/2 · Barde : ${dailyState(state).bardUses}/2 · Guerrier : ${if (dailyState(state).warriorUsed) "utilisé" else "disponible"} · Cavalier : ${if (dailyState(state).cavalierUsed) "utilisé" else "disponible"}.") }
         item { OutlinedButton(onClick = onResetDailyTests, modifier = Modifier.fillMaxWidth()) { Text("MODE TEST : remettre les utilisations du jour à zéro") } }
         item { Text("Ne supprime ni le personnage, ni les PO, ni l’inventaire, ni les kilomètres, ni le trajet ou le combat en cours. Le bonus Guerrier déjà activé pendant le combat reste actif.", style = MaterialTheme.typography.bodySmall) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
@@ -961,7 +1037,9 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             "Suivi des distances cumulées et validation d'arrivée",
             "Rencontres : table officielle Fitland (7D6), quantité, contexte et PV",
             "Arme active et bonus de contexte des gants de vétéran",
-            "Historique du dé de contexte et de ses modificateurs",
+            "Historique des dés (7D6, quantité et contexte), et manipulation Mage/Moine",
+            "Téléportation Cavalier (adjacence confirmée sur la carte du livre)",
+            "Jauges des caractéristiques du personnage (affichage uniquement)",
             "Suivi manuel des dégâts et butin à la victoire",
             "Ciblage individuel pour les armes à distance (règle maison)",
             "Mode novice : distance de carte convertie en minutes",
@@ -1171,12 +1249,14 @@ private val encounterRules = listOf(
 )
 
 private fun generateEncounter(equippedWeapon: String, equippedSupport: String, character: Character, bardJourney: Boolean = false): Encounter? {
-    val roll = (1..7).sumOf { Random.nextInt(1, 7) }
+    val typeDice = List(7) { Random.nextInt(1, 7) }
+    val roll = typeDice.sum()
     val rule = encounterRules[roll - 7]
     // Campagne actuelle : Fitland. Les rencontres d'autres régions sont ignorées.
-    if (!(rule.zones == "Toutes" || rule.zones.contains("Fitland")) || rule.zones == "Toutes sauf Fitland") return null
+    if (!isFitlandEncounter(rule)) return null
     val fixedQuantity = rule.effect.contains("Quantité fixe", ignoreCase = true)
-    val quantity = if (fixedQuantity) 1 else Random.nextInt(1, 7) * (if (roll == 7) 10 else 1) * (if (bardJourney) 2 else 1)
+    val quantityDie = if (fixedQuantity) 0 else Random.nextInt(1, 7)
+    val quantity = if (fixedQuantity) 1 else quantityDie * (if (roll == 7) 10 else 1) * (if (bardJourney) 2 else 1)
     // Mode audacieux : +25 % sur le butin des adversaires doublés, arrondi à l'entier inférieur.
     // Une rencontre à quantité fixe n'est pas doublée et ne bénéficie pas de ce bonus.
     val reward = (rule.reward.toLong() * quantity * (if (bardJourney && !fixedQuantity) 5L else 4L) / 4L).toInt()
@@ -1190,7 +1270,7 @@ private fun generateEncounter(equippedWeapon: String, equippedSupport: String, c
     val contexts = listOf("Vous êtes piégé !", "Une embuscade !", "Ils arrivent !", "Ils ne vous échapperont pas.", "Ils sont à votre merci.", "Ils n'ont rien vu.")
     val effects = listOf("10 burpees par adversaire", "Durée d'utilisation des objets ×2", "50 jumping jacks", "20 jumping jacks", "Aucun exercice", "Rencontre évitable")
     val safe = rule.effect.startsWith("Inoffensif")
-    return Encounter(rule.name, quantity, rule.hp, reward, contexts[contextRoll - 1], effects[contextRoll - 1], roll, rule.hp * quantity, rule.effect, safe, contextDie, contextBonus, listOfNotNull(if (equipmentBonus > 0) equippedWeapon else null, if (supportBonus > 0) equippedSupport else null, if (acrobatBonus > 0) "Acrobate +2" else null).joinToString(" + "), enemyHp = List(quantity) { rule.hp })
+    return Encounter(rule.name, quantity, rule.hp, reward, contexts[contextRoll - 1], effects[contextRoll - 1], roll, rule.hp * quantity, rule.effect, safe, contextDie, contextBonus, listOfNotNull(if (equipmentBonus > 0) equippedWeapon else null, if (supportBonus > 0) equippedSupport else null, if (acrobatBonus > 0) "Acrobate +2" else null).joinToString(" + "), enemyHp = List(quantity) { rule.hp }, typeDice = typeDice, quantityDie = quantityDie)
 }
 
 // Les anciennes sauvegardes n'avaient qu'une réserve commune : reconstruction déterministe.
@@ -1286,14 +1366,14 @@ private fun saveState(context: Context, state: AppState) {
         put("unlockedClasses", JSONArray(c.unlockedClasses)); put("completedAchievements", JSONArray(c.completedAchievements))
     }
     val obj = JSONObject().apply {
-        put("schema", 19); put("character", character); put("distance", state.distance)
+        put("schema", 21); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("totalTravelKm", state.totalTravelKm)
         put("encounters", state.encounters); put("retreatActive", state.retreatActive); put("retreatOrigin", state.retreatOrigin)
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
         put("equippedWeapon", state.equippedWeapon); put("equippedSupport", state.equippedSupport); put("meditationActive", state.meditationActive)
         put("vigorActive", state.vigorActive); put("quantumMode", state.quantumMode); put("illusionActive", state.illusionActive)
-        put("abilityDay", state.abilityDay); put("scoutUses", state.scoutUses); put("warriorUsed", state.warriorUsed); put("warriorActive", state.warriorActive); put("bardUses", state.bardUses); put("bardJourney", state.bardJourney)
+        put("abilityDay", state.abilityDay); put("scoutUses", state.scoutUses); put("warriorUsed", state.warriorUsed); put("warriorActive", state.warriorActive); put("bardUses", state.bardUses); put("bardJourney", state.bardJourney); put("cavalierUsed", state.cavalierUsed)
         put("quests", JSONArray(state.quests))
         state.lastEncounter?.let { e -> put("lastEncounter", JSONObject().apply {
             put("name", e.name); put("quantity", e.quantity); put("hp", e.hp)
@@ -1301,7 +1381,7 @@ private fun saveState(context: Context, state: AppState) {
             put("roll", e.roll); put("remainingHp", e.remainingHp); put("effect", e.effect); put("safe", e.safe)
             put("contextDie", e.contextDie); put("contextBonus", e.contextBonus); put("contextWeapon", e.contextWeapon)
             put("initialQuantity", e.initialQuantity); put("illusionDie", e.illusionDie); put("hunterUsed", e.hunterUsed); put("mysticUsed", e.mysticUsed); put("mysticDescription", e.mysticDescription)
-            put("enemyHp", JSONArray(encounterHp(e)))
+            put("enemyHp", JSONArray(encounterHp(e))); put("typeDice", JSONArray(e.typeDice)); put("quantityDie", e.quantityDie)
         }) }
     }
     context.getSharedPreferences("dof_save", Context.MODE_PRIVATE).edit()
@@ -1359,7 +1439,9 @@ private fun loadState(context: Context): AppState {
                 it.optInt("contextDie", 0), it.optInt("contextBonus", 0), it.optString("contextWeapon", ""),
                 it.optInt("initialQuantity", it.optInt("quantity")), it.optInt("illusionDie", 0),
                 it.optJSONArray("enemyHp")?.let { arr -> (0 until arr.length()).map { i -> arr.optInt(i) } } ?: emptyList(),
-                it.optBoolean("hunterUsed", false), it.optBoolean("mysticUsed", false), it.optString("mysticDescription", ""))
+                it.optBoolean("hunterUsed", false), it.optBoolean("mysticUsed", false), it.optString("mysticDescription", ""),
+                it.optJSONArray("typeDice")?.let { arr -> (0 until arr.length()).map { i -> arr.optInt(i) } } ?: emptyList(),
+                it.optInt("quantityDie", 0))
         }
         val baseState = AppState()
         baseState.copy(character = if (c.profileType == "advanced" && c.className in classAchievements) c.copy(unlockedClasses = (c.unlockedClasses + c.className).distinct()) else c,
@@ -1373,7 +1455,7 @@ private fun loadState(context: Context): AppState {
             vigorActive = obj.optBoolean("vigorActive", false), quantumMode = obj.optString("quantumMode", ""), illusionActive = obj.optBoolean("illusionActive", false),
             log = strings("log", baseState.log), inventory = strings("inventory", baseState.inventory),
             abilityDay = obj.optString("abilityDay", ""), scoutUses = obj.optInt("scoutUses", 0),
-            warriorUsed = obj.optBoolean("warriorUsed", false), warriorActive = obj.optBoolean("warriorActive", false), bardUses = if (obj.has("bardUses")) obj.optInt("bardUses", 0) else if (obj.optBoolean("bardUsed", false)) 1 else 0, bardJourney = obj.optBoolean("bardJourney", false),
+            warriorUsed = obj.optBoolean("warriorUsed", false), warriorActive = obj.optBoolean("warriorActive", false), bardUses = if (obj.has("bardUses")) obj.optInt("bardUses", 0) else if (obj.optBoolean("bardUsed", false)) 1 else 0, bardJourney = obj.optBoolean("bardJourney", false), cavalierUsed = obj.optBoolean("cavalierUsed", false),
             quests = strings("quests", baseState.quests))
     } catch (_: Exception) { AppState() }
 }
@@ -1381,7 +1463,7 @@ private fun loadState(context: Context): AppState {
 // Limites quotidiennes calculées sur la date locale de l'appareil (mode hors ligne).
 private fun dailyState(s: AppState): AppState {
     val today = java.time.LocalDate.now().toString()
-    return if (s.abilityDay == today) s else s.copy(abilityDay = today, scoutUses = 0, warriorUsed = false, bardUses = 0)
+    return if (s.abilityDay == today) s else s.copy(abilityDay = today, scoutUses = 0, warriorUsed = false, bardUses = 0, cavalierUsed = false)
 }
 
 private fun planJourney(state: AppState, destination: String, km: Double, scout: Boolean, bardAudacious: Boolean): AppState {
@@ -1413,17 +1495,83 @@ private fun activateWarrior(state: AppState): AppState {
 private fun warriorDamage(state: AppState, damage: Int): Int =
     if (state.warriorActive) (damage.toLong() * 2).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else damage
 
-// Livre p. 41-42 : ajustement d'un dé de rencontre ; ici le dé de contexte uniquement.
-private fun useMysticContext(state: AppState, delta: Int): AppState {
+// Livre p. 41 : téléportation d'une zone adjacente, 1 fois par jour.
+// L'adjacence est vérifiée et confirmée manuellement sur la carte p. 51 :
+// l'application ne prétend pas disposer du graphe officiel des zones.
+private fun useCavalierAbility(state: AppState, target: String): AppState {
+    val s = dailyState(state)
+    if (s.character.profileType != "advanced" || s.character.className != "Cavalier" ||
+        s.cavalierUsed || s.destinationKm > 0.0 || s.lastEncounter != null ||
+        target !in fitlandPlaces || target == s.character.location) return s
+    return s.copy(character = s.character.copy(location = target), cavalierUsed = true,
+        bardJourney = false, destination = "", destinationKm = 0.0, distance = 0.0,
+        log = (listOf("Cavalier : téléportation depuis ${s.character.location} vers $target (zone adjacente confirmée sur la carte officielle), utilisation quotidienne consommée. Aucun km ni rencontre.") + s.log).take(100))
+}
+
+// Livre p. 41-42 : le pouvoir agit sur UN dé, que ce soit parmi les 7D6
+// de type, sur le D6 de quantité, ou sur le D6 de contexte.
+private fun useMysticDie(state: AppState, kind: String, dieIndex: Int, delta: Int): AppState {
     val e = state.lastEncounter ?: return state
     val cls = state.character.className
-    if (state.character.profileType != "advanced" || cls !in listOf("Mage", "Moine") || e.mysticUsed ||
-        encounterHp(e).any { it != e.hp } || e.contextDie <= 0 ||
-        delta !in (if (cls == "Mage") listOf(-1, 1) else listOf(-2, -1, 1, 2)) ||
-        e.contextDie + delta !in 1..6) return state
-    val index = (e.contextDie + delta + e.contextBonus).coerceIn(1, 6) - 1
-    val contexts = listOf("Vous êtes piégé !", "Une embuscade !", "Ils arrivent !", "Ils ne vous échapperont pas.", "Ils sont à votre merci.", "Ils n'ont rien vu.")
-    val effects = listOf("10 burpees par adversaire", "Durée d'utilisation des objets ×2", "50 jumping jacks", "20 jumping jacks", "Aucun exercice", "Rencontre évitable")
-    val detail = "$cls : dé de contexte ${e.contextDie} ${if (delta > 0) "+" else ""}$delta = ${e.contextDie + delta}${if (cls == "Moine") " (Prière confirmée)" else ""}"
-    return state.copy(lastEncounter = e.copy(contextDie = e.contextDie + delta, context = contexts[index], exercise = effects[index], mysticUsed = true, mysticDescription = detail), log = (listOf(detail) + state.log).take(100))
+    if (state.character.profileType != "advanced" || cls !in listOf("Mage", "Moine") ||
+        e.mysticUsed || e.hunterUsed || state.illusionActive ||
+        encounterHp(e).any { it != e.hp } ||
+        delta !in (if (cls == "Mage") listOf(-1, 1) else listOf(-2, -1, 1, 2))) return state
+    val before = when (kind) {
+        "Type" -> e.typeDice.getOrNull(dieIndex) ?: return state
+        "Quantité" -> if (!e.effect.contains("quantité fixe", ignoreCase = true)) e.quantityDie else 0
+        "Contexte" -> e.contextDie
+        else -> return state
+    }
+    val after = before + delta
+    if (before !in 1..6 || after !in 1..6) return state
+    val label = "$cls : dé de ${kind.lowercase()} $before ${if (delta > 0) "+" else ""}$delta = $after${if (cls == "Moine") " (Prière confirmée)" else ""}"
+    val updated = when (kind) {
+        "Contexte" -> {
+            val contexts = listOf("Vous êtes piégé !", "Une embuscade !", "Ils arrivent !", "Ils ne vous échapperont pas.", "Ils sont à votre merci.", "Ils n'ont rien vu.")
+            val effects = listOf("10 burpees par adversaire", "Durée d'utilisation des objets ×2", "50 jumping jacks", "20 jumping jacks", "Aucun exercice", "Rencontre évitable")
+            val index = (after + e.contextBonus).coerceIn(1, 6) - 1
+            e.copy(contextDie = after, context = contexts[index], exercise = effects[index])
+        }
+        "Quantité" -> {
+            val multiplier = (if (e.roll == 7) 10 else 1) * (if (state.bardJourney) 2 else 1)
+            val qty = after * multiplier
+            val rule = encounterRules.getOrNull(e.roll - 7) ?: return state
+            val reward = (rule.reward.toLong() * qty * (if (state.bardJourney) 5L else 4L) / 4L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            e.copy(quantityDie = after, quantity = qty, initialQuantity = qty, remainingHp = qty * e.hp,
+                enemyHp = List(qty) { e.hp }, reward = reward)
+        }
+        "Type" -> {
+            if (e.typeDice.size != 7) return state
+            val dice = e.typeDice.toMutableList().apply { this[dieIndex] = after }
+            val roll = dice.sum()
+            val rule = encounterRules.getOrNull(roll - 7) ?: return state
+            // Livre p. 42 : on ignore les rencontres dont le type n'existe pas dans la région.
+            if (!isFitlandEncounter(rule)) {
+                return state.copy(lastEncounter = null,
+                    log = (listOf("$label ; somme 7D6 = $roll, ${rule.name} absent du Fitland : rencontre ignorée (livre p. 42).") + state.log).take(100))
+            }
+            val fixed = rule.effect.contains("quantité fixe", ignoreCase = true)
+            val baseDie = if (fixed) 0 else if (e.quantityDie in 1..6) e.quantityDie else Random.nextInt(1, 7)
+            val qty = if (fixed) 1 else baseDie * (if (roll == 7) 10 else 1) * (if (state.bardJourney) 2 else 1)
+            val reward = (rule.reward.toLong() * qty * (if (state.bardJourney && !fixed) 5L else 4L) / 4L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            val contexts = listOf("Vous êtes piégé !", "Une embuscade !", "Ils arrivent !", "Ils ne vous échapperont pas.", "Ils sont à votre merci.", "Ils n'ont rien vu.")
+            val effects = listOf("10 burpees par adversaire", "Durée d'utilisation des objets ×2", "50 jumping jacks", "20 jumping jacks", "Aucun exercice", "Rencontre évitable")
+            val contextBonus = e.contextBonus - (if (e.roll == 15) 2 else 0) + (if (roll == 15) 2 else 0)
+            val contextIndex = (e.contextDie + contextBonus).coerceIn(1, 6) - 1
+            e.copy(typeDice = dice, roll = roll, name = rule.name, hp = rule.hp, quantity = qty,
+                quantityDie = baseDie, initialQuantity = qty, enemyHp = List(qty) { rule.hp },
+                remainingHp = rule.hp * qty, reward = reward, effect = rule.effect,
+                safe = rule.effect.startsWith("Inoffensif"), contextBonus = contextBonus,
+                context = contexts[contextIndex], exercise = effects[contextIndex])
+        }
+        else -> return state
+    }
+    val detail = if (kind == "Type") "$label ; somme 7D6 = ${updated.roll}, rencontre : ${updated.name} ×${updated.quantity}." else
+        if (kind == "Quantité") "$label ; ${updated.quantity} adversaire(s), butin ${updated.reward} PO." else "$label ; nouveau contexte : ${updated.context}."
+    return state.copy(lastEncounter = updated.copy(mysticUsed = true, mysticDescription = detail),
+        log = (listOf(detail) + state.log).take(100))
 }
+
+private fun isFitlandEncounter(rule: EncounterRule): Boolean =
+    (rule.zones == "Toutes" || rule.zones.contains("Fitland")) && rule.zones != "Toutes sauf Fitland"

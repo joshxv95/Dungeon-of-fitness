@@ -4,7 +4,7 @@ Application de fitness-RPG **hors ligne**, en Kotlin / Jetpack Compose, adaptée
 
 ## Version et historique
 
-- Version actuelle : **1.20.2** (`versionCode` **123**).
+- Version actuelle : **1.21.0** (`versionCode` **124**).
 - Source de vérité : `app/build.gradle.kts`, champs `versionName` et `versionCode`.
 - L'écran **Application** affiche automatiquement `BuildConfig.VERSION_NAME`, sans numéro codé en dur.
 - Historique des changements : [CHANGELOG.md](CHANGELOG.md). Aucun fichier `VERSION-X.X.txt` n'est nécessaire.
@@ -45,3 +45,11 @@ La configuration de compilation est dans `.github/workflows/build-apk.yml`. Un A
 - Les caractéristiques ne reçoivent pas de nouveau système maison dans cette application : une éventuelle mécanique RPG plus avancée sera abordée dans un **autre projet** utilisant le moteur fitness.
 
 Consulter le livre pour les règles officielles. Les écarts doivent être indiqués comme conventions d'adaptation ou règles maison.
+
+
+### Nouveautés 1.21.0
+
+- **Mage et Moine :** sur une nouvelle rencontre, sélectionnez le type (un des sept D6), la quantité (un D6 quand la quantité n’est pas fixe) ou le contexte (un D6), puis la modification autorisée. Le Moine confirme une Prière avant validation. Une modification par rencontre : convention d’interface, pas une limite quotidienne officielle.
+- **Cavalier :** en l’absence de trajet actif ou de rencontre, sélectionnez une destination **adjacente** et cochez la confirmation après vérification sur la carte papier p. 51. La téléportation est utilisable une fois par jour et peut être réinitialisée dans le mode test.
+- **Jauges de caractéristiques :** progression sur 10 de chaque score calculé depuis les tests du livre, sans ajout d'effet mécanique.
+- **Anciennes rencontres :** leur sauvegarde fonctionne, mais les dés de type et de quantité ne peuvent pas être reconstitués ; seul le contexte reste modifiable pour ces rencontres.

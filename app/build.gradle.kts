@@ -5,7 +5,7 @@ plugins {
 }
 
 android { namespace = "com.dungeonoffitness.app"; compileSdk = 35
-    defaultConfig { applicationId = "com.dungeonoffitness.app"; minSdk = 26; targetSdk = 35; versionCode = 123; versionName = "1.20.2" }
+    defaultConfig { applicationId = "com.dungeonoffitness.app"; minSdk = 26; targetSdk = 35; versionCode = 124; versionName = "1.21.0" }
     // Le numero affiche dans l'application vient de BuildConfig.VERSION_NAME.
     buildFeatures { buildConfig = true }
     signingConfigs {

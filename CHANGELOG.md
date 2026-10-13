@@ -2,6 +2,16 @@
 
 La version courante est toujours définie dans `app/build.gradle.kts` (`versionName` et `versionCode`), et affichée automatiquement dans l’application via `BuildConfig.VERSION_NAME`.
 
+## 1.21.0 — Dés de rencontre, Cavalier et jauges de caractéristiques
+- Mage (p. 41–42) : modifie de ±1 un dé choisi parmi les sept dés du type, le dé de quantité ou le dé de contexte, une fois par rencontre (convention d’interface conservée).
+- Moine (p. 41–42) : mêmes trois catégories de dés, avec ±1/±2 et confirmation d’une Prière. Les faces restent dans l’intervalle 1 à 6.
+- Les 7D6 de type et le D6 de quantité sont enregistrés dans chaque nouvelle rencontre. Recalcul immédiat de l’adversaire, des PV, de la quantité, des PO, du contexte et des éventuels modificateurs du Trollympien.
+- Les rencontres modifiées vers un type indisponible au Fitland sont ignorées conformément à la règle du livre (p. 42) ; les rencontres à quantité fixe n’offrent pas de dé de quantité à modifier.
+- Cavalier (p. 41) : une téléportation quotidienne vers une zone adjacente, sans distance ni rencontre. En l’absence de graphe officiel intégré, l’utilisateur doit vérifier et confirmer lui-même l’adjacence sur la carte p. 51.
+- Mode test : réinitialisation du compteur Cavalier en plus de ceux de l’Éclaireur, du Barde et du Guerrier.
+- Fiche de personnage : jauges des statistiques sur 10 avec nombres conservés (affichage seulement, pas de règles RPG maison ajoutées).
+- Compatibilité des sauvegardes v1.20.2 (nouveaux champs avec valeurs par défaut) et signature debug conservée ; versionCode 124.
+
 ## 1.20.2 — Portraits et maintenance
 - Huit portraits de classes refaits à partir de nouvelles illustrations, enregistrés comme huit fichiers PNG indépendants, sans textes ni portraits voisins.
 - Harmonisation du format des illustrations (450 × 600), affichage sans découpe (`ContentScale.Fit`), coins arrondis et encadrement discret de la fiche personnage.
