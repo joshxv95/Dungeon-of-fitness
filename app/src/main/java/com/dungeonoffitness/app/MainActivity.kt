@@ -9,7 +9,9 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
@@ -95,8 +97,8 @@ private fun itemSymbol(name: String): String = when {
 @Composable private fun ClassPortrait(className: String, modifier: Modifier = Modifier) {
     Image(painter = painterResource(portraitFor(className)),
         contentDescription = "Illustration de la classe $className",
-        contentScale = ContentScale.Crop,
-        modifier = modifier)
+        contentScale = ContentScale.Fit,
+        modifier = modifier.clip(RoundedCornerShape(10.dp)))
 }
 @Composable private fun HealthGauge(label: String, current: Int, maximum: Int, modifier: Modifier = Modifier) {
     val fraction = if (maximum > 0) (current.toFloat() / maximum).coerceIn(0f, 1f) else 0f
@@ -111,7 +113,10 @@ private fun itemSymbol(name: String): String = when {
     }
 }
 @Composable private fun ClassBanner(c: Character) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF24232F))) {
+    Card(
+        border = BorderStroke(1.dp, Color(0xFF97784A)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF24232F))
+    ) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             ClassPortrait(c.className, Modifier.size(width = 100.dp, height = 120.dp))
@@ -944,7 +949,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun ApplicationInfo(state: AppState, onResetDailyTests: () -> Unit) {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
-        item { Text("Dungeon of Fitness · Version 1.19.1", style = MaterialTheme.typography.titleLarge) }
+        item { Text("Dungeon of Fitness · Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleLarge) }
         item { Text("Mode test — capacités quotidiennes", style = MaterialTheme.typography.titleMedium) }
         item { Text("Éclaireur : ${dailyState(state).scoutUses}/2 · Barde : ${dailyState(state).bardUses}/2 · Guerrier : ${if (dailyState(state).warriorUsed) "utilisé" else "disponible"}.") }
         item { OutlinedButton(onClick = onResetDailyTests, modifier = Modifier.fillMaxWidth()) { Text("MODE TEST : remettre les utilisations du jour à zéro") } }

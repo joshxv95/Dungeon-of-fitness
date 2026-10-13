@@ -1,142 +1,47 @@
-# Dungeon of Fitness v0.4
+# Dungeon of Fitness — Android
 
-Android Kotlin/Compose, hors ligne. Build APK dans GitHub Actions.
+Application de fitness-RPG **hors ligne**, en Kotlin / Jetpack Compose, adaptée pour un usage personnel du livre *La Communauté des Abdos*. L'application ne remplace pas les consignes de sécurité des exercices et les règles maison sont identifiées comme telles.
 
-## Nouveautés
-- Sélection Novice / Avancé dans Personnage.
-- Quatre Prières du profil avancé : Proteidon, Endurox, Dumbella, Athleena ; résilience mentale Arno.
-- Classe, compétence et capacité spéciale ; divinité selon le meilleur score (égalités incluses).
-- Sauvegarde automatique de toutes les nouvelles données ; compatible avec les données v0.3.
-- Réinitialisation intégrale avec boîte de confirmation. Annuler n'efface rien.
+## Version et historique
 
-## Important
-Le livre p. 35 indique littéralement « somme des scores de caractéristiques divisée par dix » : c'est cette formule qui est implémentée, même si elle semble contradictoire avec le niveau maximum 10 mentionné à proximité. La classe est choisie manuellement d'après l'activité qui a obtenu le meilleur score ; le logiciel ne peut pas vérifier cette correspondance sans historique d'épreuves par activité. La progression mentale +1 dépend de l'amélioration d'un rang dans chacune des quatre Prières et doit être validée par le joueur. Les rencontres restent provisoires.
+- Version actuelle : **1.20.2** (`versionCode` **123**).
+- Source de vérité : `app/build.gradle.kts`, champs `versionName` et `versionCode`.
+- L'écran **Application** affiche automatiquement `BuildConfig.VERSION_NAME`, sans numéro codé en dur.
+- Historique des changements : [CHANGELOG.md](CHANGELOG.md). Aucun fichier `VERSION-X.X.txt` n'est nécessaire.
 
-## Installation
-Décompresser et transférer le contenu du dossier `dungeon-fitness-app` à la racine du dépôt GitHub. Pousser sur `main`, télécharger l'APK dans Actions > Artifacts. Installer par-dessus la v0.3 pour conserver la sauvegarde.
-\n\n## Version 0.5\n- Le choix Novice/Avancé est verrouillé dès le premier enregistrement du profil et conservé après redémarrage.\n- Les épreuves du profil choisi restent actualisables.\n- La réinitialisation complète déverrouille le choix (attention : suppression totale).\n- Les noms des accomplissements des huit classes sont visibles à titre indicatif pour le profil avancé, sans validation automatique pour le moment.\n\n## v0.6 — Classes et accomplissements
-- Huit classes et leurs trois accomplissements dans le profil avancé.
-- Historique des classes débloquées, préservé lors des changements de discipline.
-- Validation manuelle et révocable des accomplissements, persistée localement.
-- Migration des sauvegardes v0.5, sans effacement des données.
-- Le verrouillage Novice/Avancé est conservé.
-- Limite : les conditions officielles détaillées des accomplissements ne sont pas encore intégrées ; aucun gain automatique n'est attribué.
-\n## v0.7.0 — correctifs et ergonomie
-- Correction effective des cases d'accomplissements, avec sauvegarde persistante.
-- Conservation des classes débloquées lors des changements de discipline.
-- Résumé des caractéristiques, classes et accomplissements placé avant les formulaires.
-- Onglet Application : numéro de version, fonctionnalités présentes et fonctionnalités à venir.
-- Compatibilité avec les sauvegardes précédentes.\n\n## v0.8.0
-- Affiche seulement les accomplissements de la classe actuelle.
-- Au changement effectif de classe lors de l'enregistrement du profil avancé, les validations sont effacées.
-- L'historique des classes découvertes est conservé ; pas de perte de sauvegarde.
-- Carnet de lieux dans l'onglet Application : aperçu non interactif sans distances inventées.
-- Version affichée : 0.8.0.
+## Compilation de l'APK avec GitHub Actions
 
-## v0.9.0 — fidélité des accomplissements
-- Les accomplissements validés persistent lors des changements de classe.
-- Les trois accomplissements de la classe active restent affichés.
-- Seuls les accomplissements validés des anciennes classes sont affichés, regroupés par classe.
-- Possibilité de décocher une validation, y compris dans une ancienne classe.
-- Les données déjà effacées par la version 0.8 ne peuvent pas être restaurées automatiquement.
-- Numéro de version Android corrigé : 0.9.0.
-\n## v1.0.0 — Expéditions de Fitland
-- Choix d'une destination parmi les lieux de la carte (livre p. 51).
-- Saisie manuelle de la distance du trajet selon la carte, sans inventer de connexions.
-- Position de départ selon la classe lors de la première création du profil (livre p. 41).
-- Mode novice : 1 km de carte équivaut à 1 minute d'endurance (livre p. 41).
-- Progression cumulée entre trajets, rencontre à chaque seuil de 6 unités (livre p. 42).
-- Validation de l'arrivée et mise à jour de la position.
-- Sauvegardes v0.9 compatibles, accomplissements préservés.
-- LIMITES : rencontres encore fictives/provisoires ; pas de calcul automatique d'itinéraire, ni de pouvoirs de déplacement des classes.
+1. Décompresser cette archive.
+2. Copier le contenu **intérieur** du dossier `dungeon-fitness-app/` à la racine d'un dépôt GitHub, en remplaçant les fichiers correspondants. **Supprimer dans GitHub les anciens `VERSION-X.X.txt`**, car un ZIP ne supprime pas les fichiers déjà présents dans un dépôt.
+3. Valider les modifications sur la branche `main`.
+4. Dans GitHub : **Actions → Build APK → Run workflow** (ou attendre le déclenchement automatique du push).
+5. Télécharger l'artifact `dungeon-of-fitness-debug-apk`, puis installer `app-debug.apk` sur le téléphone.
 
-## v1.1.0 — Rencontres officielles
-- 7D6, table 7–42 p. 43 ; quantité 1D6 et contexte 1D6 p. 42.
-- Filtrage des rencontres non accessibles en Fitland.
-- Points de vie cumulés, dégâts manuels, récompense seulement après victoire.
-- Effets immédiats affichés, à appliquer manuellement ; rencontres inoffensives séparées.
-- Sauvegarde de la rencontre en cours et des PV restants.
-- Les pouvoirs de classe, objets, fuite et effets persistants ne sont pas encore automatisés.
+La configuration de compilation est dans `.github/workflows/build-apk.yml`. Un APK de production signé pour le Play Store n'est **pas** fourni.
 
-## v1.2.0 — Armurerie et attaques
-- 11 armes tarifées et leurs exercices, transcrites du catalogue du livre p. 163-169.
-- Achat avec PO, sans revente, inventaire sauvegardé.
-- Sélection d'une arme possédée pendant le combat ; nombre de répétitions ou de tranches de temps réalisées ; calcul des PV.
-- Saisie manuelle conservée pour les objets non intégrés et les effets spéciaux.
-- Compatibilité des sauvegardes v1.1.
-- Limites : pas encore de dotation initiale recalculée, ni catalogue complet, ni automatisation des modificateurs de contexte.
+## Conserver la sauvegarde lors d'une mise à jour
 
-## v1.3.0 — Modificateur de contexte
-- Gants de vétéran : +1 au dé de contexte (p. 168).
-- Choix explicite de l'arme active dans le Sac AVANT la rencontre.
-- Affichage du dé de contexte et des bonus, y compris Trollympien +2.
-- Le dépassement de 6 est plafonné à 6 faute de ligne supérieure dans la table.
-- Embuscade : rappel des durées doublées et durée effective affichée pour les armes temporisées.
-- Sauvegarde compatible avec v1.2 ; les rencontres antérieures n'ont pas de dé initial récupérable.
-- Les autres effets d'objets et capacités de classe restent manuels.
+- Le `applicationId` demeure `com.dungeonoffitness.app`.
+- La clé de signature **debug de test** `app/debug-signing/dof-test-debug.jks` reste inchangée depuis la v1.10, et le `versionCode` augmente à chaque version.
+- Installer par-dessus une version signée avec **cette même clé** pour conserver les données locales.
+- Ne pas supprimer l'application avant la mise à jour : une désinstallation effacerait la sauvegarde locale.
+- Les clés de test sont incluses dans les sources pour le développement privé ; elles ne conviennent pas à une distribution de production.
 
-## v1.4.0 — Extension de l'armurerie
-- Six armes supplémentaires du catalogue (Culotte de mage, Hallebarde lourde, Lance, Masse Gainer, Masse haltère, Perche Lance).
-- Bonus de contexte +2 de la Hallebarde lourde si active avant le tirage.
-- Identification explicite des armes à dégâts à distance (sans inventer de mécanique supplémentaire).
-- Affichage du bonus réel de l'arme active pendant la rencontre.
-- Données et sauvegardes des versions antérieures conservées.
-- Limites : les effets d'autres équipements, l'équipement initial et les règles complètes de combat restent à implémenter.
+## Fonctionnalités majeures
 
+- Huit classes avancées et capacités de déplacement/rencontre progressivement automatisées.
+- Parcours réel en kilomètres (ou équivalent en minutes en mode novice), rencontres selon les tables du livre, contextes et exercices.
+- Combat par mouvements/exercices associés aux armes, suivi des PV par adversaire et jauges visuelles.
+- Inventaire par catégories, équipements, améliorations et consommables.
+- Journaux, progression et sauvegarde locale, ainsi que boutons de test des PO et des capacités quotidiennes.
+- Huit portraits illustrés distincts dans `app/src/main/res/drawable/portrait_*.png` (450 × 600), embarqués dans l'APK, sans Internet.
 
-## v1.5.0
-- Ajout des armes Sarbacane, Sabre féérique, Sceptre féérique et Tapis de mage de guerre, tirées du Guide touristique p. 172 et 175.
-- Le contexte « Vous êtes piégé » affiche le total de burpees selon la quantité d'adversaires.
-- Les sauvegardes v1.4 restent compatibles.
-- Les effets complexes et objets consommables ne sont pas encore automatisés.
+## Points non achevés ou conventions
 
+- Le Barde solo utilise une **règle maison** : jusqu'à deux trajets à demi-distance par jour, mode prudent ou mode audacieux (adversaires ×2 et récompense ×2,5 par rapport à la quantité initiale) pour les rencontres qui n'ont pas de quantité fixe.
+- Le Mage et le Moine modifient pour l'instant **le dé de contexte**, pas encore ceux de type/quantité.
+- Les combats spéciaux et effets immédiats de certains ennemis ne sont pas tous automatisés.
+- La carte et les trajets restent majoritairement renseignés manuellement ; les déplacements du Cavalier nécessitent une représentation exacte de l'adjacence des zones.
+- Les caractéristiques ne reçoivent pas de nouveau système maison dans cette application : une éventuelle mécanique RPG plus avancée sera abordée dans un **autre projet** utilisant le moteur fitness.
 
-## v1.6 — Objets d'amélioration (PDF p. 170-171)
-- Pattes d’ours : 50 PO, +50 PV à l'attaque si le comptage oral est confirmé.
-- Manuel de bottes de Maître : 1000 PO, +100 PV par attaque avec une arme.
-- Manuel de combat à mains nues : 500 PO, +50 PV par attaque avec des gants.
-- Les bonus fixes sont comptés une fois par attaque enregistrée, non par répétition.
-- Achats et objets conservés dans les sauvegardes antérieures.
-- Non inclus : Manuel de méditation, autres consommables, interactions avancées.
-
-
-## v1.7 — Méditation et Shaker persuasion
-- Manuel de méditation : 1000 PO, confirmation de 60 secondes de méditation par adversaire, +100 dégâts sur chaque attaque pendant ce combat.
-- Shaker persuasion : 100 PO par unité, stock cumulable, usage unique pour ignorer une rencontre sans récompense.
-- Effets temporaires réinitialisés après la rencontre et conservés pendant une rencontre en cours après redémarrage.
-- Les bonus de la v1.6 restent appliqués une fois par attaque enregistrée.
-- Autres shakers non encore implémentés.
-
-
-## Version 1.10.0 — mises à jour et tests
-
-- Signature debug **fixe** avec `app/debug-signing/dof-test-debug.jks` (clé de TEST publique, jamais pour la production). Conserver exactement cette clé dans toutes les futures versions pour autoriser les installations par-dessus cette version.
-- **Important :** les APK antérieurs ont été signés par des clés debug variables de GitHub Actions. Une dernière désinstallation peut être nécessaire pour passer à v1.10.0 ; cela supprime les données locales. Faire les captures/relevés utiles avant. Une signature différente ne peut pas être corrigée par une hausse de versionCode.
-- VersionCode 110 pour permettre les mises à jour suivantes (utiliser 111, 112, etc.).
-- Dans le Sac, +100 / +1000 PO pour les tests uniquement (hors règles du livre, persistant).
-- Shaker illusion : achat, stock, consommation, statut sauvegardé pendant le combat. Son effet d'alliés illusoires est affiché sans inventer de bonus de dégâts.
-
-## v1.13 — ciblage des armes à distance
-Les armes marquées à distance ciblent un adversaire vivant choisi par le joueur, sans transfert de dégâts. Convention maison, distincte du livre. Les armes ordinaires conservent la répartition automatique.
-
-## v1.15.0 — Sac catégorisé et fuite
-- Onglets Armes, Soutien, Améliorations, Consommables avec inventaire filtré et quantités regroupées.
-- Évitement sans pénalité uniquement en contexte 6, ou fin de rencontre pacifique.
-- Fuite distincte : confirmation des exercices de contexte, retour mesuré au point de départ du trajet, sans rencontre ni butin.
-- Le trajet de fuite ne progresse pas dans le compteur des rencontres.
-- Capacité de classe affichée si renseignée ; automatisation future.
-- Limites : les effets immédiats des monstres et la fuite spéciale de l'Acrobate restent manuels ; le trajet de retour utilise la distance déjà parcourue du trajet en cours.
-- Les effets des statistiques sur le combat seront étudiés à la fin du développement comme règles maison, non ajoutés ici.
-
-## v1.19.0 — Barde solo (règle maison)
-- Deux demi-trajets par jour, au lieu d'un seul.
-- Choix avant chaque demi-trajet : **prudent** (rencontres et butin normaux) ou **audacieux** (quantité des rencontres ×2 et butin de ces rencontres ×2,5 par rapport à la quantité initiale, soit +25 % du butin des adversaires doublés).
-- Arrondi du butin à l'entier inférieur ; rencontres à quantité fixe non doublées et sans majoration.
-- La majoration ne s'applique qu'aux récompenses obtenues après victoire ; fuite et évitement ne rapportent rien.
-- Sauvegarde `bardUses`, migration de l'ancien `bardUsed` ; compteur remis à zéro au changement de date locale. Les trajets en cours conservent leur mode audacieux éventuel.
-- Règle maison distincte des règles officielles du livre.
-
-## v1.19.1 — Mode test des capacités quotidiennes
-- Bouton dans Application : remet à zéro les utilisations Éclaireur, Barde et Guerrier sans supprimer la sauvegarde.
-- La rencontre précise désormais si le bonus du Barde audacieux s’applique ou si le monstre a une quantité fixe.
-- Réinitialisation réservée aux tests, hors règles du livre.
+Consulter le livre pour les règles officielles. Les écarts doivent être indiqués comme conventions d'adaptation ou règles maison.
