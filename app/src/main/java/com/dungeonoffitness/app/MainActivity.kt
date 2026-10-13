@@ -14,6 +14,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.horizontalScroll
@@ -440,6 +444,126 @@ private val fitlandPlaces = listOf(
     "Île des poids guidés", "Antre de Mollefesse"
 )
 
+// Carte officielle p. 51 : uniquement les chemins EN POINTILLÉS et distances inscrites.
+// Liens bidirectionnels pour les déplacements, sans raccourcis implicites.
+// Lieux avec cadenas : accès à valider dans le livre (non déverrouillés automatiquement).
+private data class MapLink(val from: String, val to: String, val km: Int)
+private val officialMapLinks = listOf(
+    MapLink("Fontaria", "Temple de Tasmina", 10),
+    MapLink("Temple de Tasmina", "Entrepôts Shaker+", 15),
+    MapLink("Entrepôts Shaker+", "Antre de Mollefesse", 20),
+    MapLink("Entrepôts Shaker+", "Dévers du Fitland", 10),
+    MapLink("Falaises Olympiques", "Dévers du Fitland", 10),
+    MapLink("Dévers du Fitland", "Ruines du Golem", 5),
+    MapLink("Dévers du Fitland", "Plaine du Fitland", 10),
+    MapLink("Temple de Tasmina", "Plaine du Fitland", 10),
+    MapLink("Temple de Tasmina", "Omega Beach", 10),
+    MapLink("Temple de Tasmina", "Mont Stepper", 20),
+    MapLink("Plaine du Fitland", "Omega Beach", 10),
+    MapLink("Plaine du Fitland", "Sud du Fitland", 10),
+    MapLink("Omega Beach", "Sud du Fitland", 5),
+    MapLink("Sud du Fitland", "Forêt de Brise Mollets", 10),
+    MapLink("Forêt de Brise Mollets", "Dunes des sacs crevés", 5),
+    MapLink("Dunes des sacs crevés", "Erythropoiéta", 10),
+    MapLink("Dunes des sacs crevés", "Temple de la Prophétie", 5),
+    MapLink("Dunes des sacs crevés", "Tique-Couenne", 10),
+    MapLink("Tique-Couenne", "Oasis Interdite", 10),
+    MapLink("Tique-Couenne", "Rocher de la Croupe Draconique", 10),
+    MapLink("Rocher de la Croupe Draconique", "Rives de la Mer de Nuages", 10),
+    MapLink("Rocher de la Croupe Draconique", "Caverne des Nuages sans fin", 10),
+    MapLink("Rocher de la Croupe Draconique", "Khôlkozia", 30),
+    MapLink("Khôlkozia", "Fei Tôro Choh", 20),
+    MapLink("Mont Stepper", "Tombe d’Arno", 5),
+    MapLink("Mont Stepper", "Nosferathon", 5),
+    MapLink("Nosferathon", "Litière Ville", 10),
+    MapLink("Litière Ville", "Garde Froide", 20)
+)
+private val restrictedMapPlaces = setOf(
+    "Île des poids guidés", "Antre de Mollefesse", "Falaises Olympiques",
+    "Ruines du Golem", "Temple de la Prophétie", "Caverne des Nuages sans fin"
+)
+private data class MapRoute(val places: List<String>, val km: Int)
+private fun mapNeighbors(place: String): List<Pair<String, Int>> = officialMapLinks.mapNotNull { link ->
+    when (place) {
+        link.from -> link.to to link.km
+        link.to -> link.from to link.km
+        else -> null
+    }
+}.sortedBy { it.first }
+
+// Dijkstra : renvoie le plus court trajet uniquement parmi les tronçons transcrits.
+// Les chapitres à cadenas ne servent pas de raccourcis de transit.
+private fun mapRoute(origin: String, target: String): MapRoute? {
+    if (origin == target) return MapRoute(listOf(origin), 0)
+    if (origin !in fitlandPlaces || target !in fitlandPlaces) return null
+    val distances = mutableMapOf(origin to 0)
+    val previous = mutableMapOf<String, String>()
+    val visited = mutableSetOf<String>()
+    while (true) {
+        val next = distances.filterKeys { it !in visited }.minByOrNull { it.value }?.key ?: break
+        if (next == target) break
+        visited.add(next)
+        if (next in restrictedMapPlaces && next != origin) continue
+        for ((neighbor, km) in mapNeighbors(next)) {
+            if (neighbor in visited) continue
+            val candidate = distances.getValue(next) + km
+            if (candidate < (distances[neighbor] ?: Int.MAX_VALUE)) {
+                distances[neighbor] = candidate
+                previous[neighbor] = next
+            }
+        }
+    }
+    val result = distances[target] ?: return null
+    val path = mutableListOf(target)
+    while (path.last() != origin) {
+        path.add(previous[path.last()] ?: return null)
+    }
+    return MapRoute(path.asReversed(), result)
+}
+
+@Composable private fun OfficialMapViewer(onDismiss: () -> Unit) {
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+    Dialog(onDismissRequest = onDismiss) {
+        Card(modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, Color(0xFF97784A))) {
+            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("🗺️ Milieu du Disque-Fonte · p. 51", style = MaterialTheme.typography.titleMedium)
+                Text("Pincez pour agrandir, glissez pour vous déplacer. Les cadenas signalent un accès restreint.", style = MaterialTheme.typography.bodySmall)
+                Box(Modifier.fillMaxWidth().height(380.dp).clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFFECEAE6))
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            val newScale = (scale * zoom).coerceIn(1f, 5f)
+                            scale = newScale
+                            if (newScale <= 1.01f) { offsetX = 0f; offsetY = 0f }
+                            else {
+                                val bound = (newScale - 1f) * size.width.coerceAtLeast(size.height) * 0.5f
+                                offsetX = (offsetX + pan.x).coerceIn(-bound, bound)
+                                offsetY = (offsetY + pan.y).coerceIn(-bound, bound)
+                            }
+                        }
+                    }
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.carte_disque_fonte),
+                        contentDescription = "Carte officielle du Disque-Fonte, livre page 51",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize().graphicsLayer {
+                            scaleX = scale; scaleY = scale
+                            translationX = offsetX; translationY = offsetY
+                        }
+                    )
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = { scale = 1f; offsetX = 0f; offsetY = 0f }) { Text("Réinitialiser le zoom") }
+                    Button(onClick = onDismiss) { Text("Fermer") }
+                }
+            }
+        }
+    }
+}
+
 @Composable private fun Adventure(
     state: AppState,
     onTravel: (Double) -> Unit,
@@ -457,12 +581,16 @@ private val fitlandPlaces = listOf(
     onPlan: (String, Double, Boolean, Boolean) -> Unit,
     onArrive: () -> Unit
 ) {
-    var selectedPlace by remember { mutableStateOf("Fontaria") }
+    var selectedPlace by remember(state.character.location) {
+        mutableStateOf(fitlandPlaces.firstOrNull { it != state.character.location } ?: "Fontaria")
+    }
     var expanded by remember { mutableStateOf(false) }
-    var distanceInput by remember { mutableStateOf("") }
+    var distanceInput by remember(state.character.location) { mutableStateOf("") }
+    var showMap by remember { mutableStateOf(false) }
+    var teleportExpanded by remember { mutableStateOf(false) }
+    var teleportTarget by remember(state.character.location) { mutableStateOf(mapNeighbors(state.character.location).firstOrNull()?.first.orEmpty()) }
     var scoutChosen by remember { mutableStateOf(false) }
     var bardAudacious by remember { mutableStateOf(false) }
-    var cavalierAdjacencyConfirmed by remember { mutableStateOf(false) }
     var mysticKind by remember(state.lastEncounter?.roll, state.lastEncounter?.name) { mutableStateOf("Contexte") }
     var selectedTypeDie by remember(state.lastEncounter?.roll, state.lastEncounter?.name) { mutableIntStateOf(0) }
     var monkPrayerConfirmed by remember(state.lastEncounter?.roll, state.lastEncounter?.contextDie) { mutableStateOf(false) }
@@ -475,8 +603,12 @@ private val fitlandPlaces = listOf(
     val novice = state.character.profileType == "novice"
     val unit = if (novice) "min" else "km"
     val pending = state.lastEncounter != null
+    val mapTrip = mapRoute(state.character.location, selectedPlace)
+    val mapAdjacent = mapNeighbors(state.character.location)
+    if (showMap) OfficialMapViewer { showMap = false }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("🗺️ Expédition", color = Color(0xFFEBC582), style = MaterialTheme.typography.headlineSmall) }
+        item { OutlinedButton(onClick = { showMap = true }, modifier = Modifier.fillMaxWidth()) { Text("🗺️ Ouvrir la carte officielle (zoom)") } }
         item { Text("Position actuelle : ${state.character.location}") }
         item { Text("Classe : ${state.character.className} · Niveau ${state.character.level}") }
         if (state.character.specialAbility.isNotBlank()) item { Text("Mouvement personnel : ${state.character.specialAbility}", style = MaterialTheme.typography.bodySmall) }
@@ -485,7 +617,7 @@ private val fitlandPlaces = listOf(
         if (state.character.profileType == "advanced" && state.character.className == "Éclaireur") item { Text("Éclaireur : distance divisée par 2 pour un déplacement, deux fois par jour. Utilisations restantes : ${2 - dailyState(state).scoutUses}.") }
         if (state.character.profileType == "advanced" && state.character.className == "Mage") item { Text("Mage (p. 41–42) : modifier de ±1 un dé de type, de quantité ou de contexte avant le combat.") }
         if (state.character.profileType == "advanced" && state.character.className == "Moine") item { Text("Moine (p. 41–42) : modifier de ±1 ou ±2 un dé de type, de quantité ou de contexte contre une Prière.") }
-        if (state.character.profileType == "advanced" && state.character.className == "Cavalier") item { Text("Cavalier (livre p. 41) : téléportation vers une zone adjacente, une fois par jour. Vérification de l’adjacence sur la carte p. 51.") }
+        if (state.character.profileType == "advanced" && state.character.className == "Cavalier") item { Text("Cavalier (livre p. 41) : téléportation automatique vers une zone reliée directement par un chemin en pointillés sur la carte p. 51 (une fois par jour).") }
         if (state.character.profileType == "advanced" && state.character.className == "Barde") item { Text("Barde (règle maison solo) : distance ÷2 deux fois par jour. Mode prudent : quantité et butin normaux ; mode audacieux : quantité ×2 et butin total ×2,5. Utilisations restantes : ${2 - dailyState(state).bardUses}.") }
         if (state.character.profileType == "advanced" && state.character.className == "Guerrier") item { Text("Guerrier : double les dégâts d’une rencontre contre une Prière, une fois par jour. ${if (dailyState(state).warriorUsed) "Déjà utilisée aujourd’hui." else "Disponible."}") }
         if (state.retreatActive) item { Text("RETOUR DE FUITE : rejoignez ${state.retreatOrigin}. Aucune nouvelle rencontre pendant ce trajet.", color = MaterialTheme.colorScheme.error) }
@@ -497,30 +629,75 @@ private val fitlandPlaces = listOf(
                     OutlinedButton(onClick = { expanded = true }) { Text("Destination : $selectedPlace ▾") }
                     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                         fitlandPlaces.filter { it != state.character.location }.forEach { place ->
-                            DropdownMenuItem(text = { Text(place) }, onClick = { selectedPlace = place; expanded = false })
+                            DropdownMenuItem(text = { Text(place) }, onClick = {
+                                selectedPlace = place
+                                distanceInput = mapRoute(state.character.location, place)?.km?.toString().orEmpty()
+                                expanded = false
+                            })
                         }
                     }
                 }
             }
+            item {
+                Card(border = BorderStroke(1.dp, Color(0xFF6C705A))) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("📍 Itinéraire sur la carte officielle", style = MaterialTheme.typography.titleMedium)
+                        if (mapTrip != null && mapTrip.km > 0) {
+                            Text("${mapTrip.km} km · ${mapTrip.places.size - 1} tronçon(s)",
+                                color = Color(0xFFEBC582), style = MaterialTheme.typography.titleMedium)
+                            Text(mapTrip.places.joinToString(" → "))
+                            if (mapTrip.places.any { it in restrictedMapPlaces })
+                                Text("⚠️ Accès restreint sur cet itinéraire : vérifiez les conditions du chapitre dans le livre.",
+                                    color = Color(0xFFF0B44E), style = MaterialTheme.typography.bodySmall)
+                            OutlinedButton(onClick = { distanceInput = mapTrip.km.toString() }) {
+                                Text("Utiliser ${mapTrip.km} km de la carte")
+                            }
+                        } else {
+                            Text("Aucun trajet relié par les chemins transcrits depuis cette position. Vérifiez le livre p. 51 et renseignez la distance manuellement.",
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text("Calcul du plus court itinéraire parmi les liaisons relevées. Les cadenas restent soumis aux conditions des chapitres ; traverser une zone ne valide pas automatiquement son chapitre.",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
             item { OutlinedTextField(value = distanceInput, onValueChange = { distanceInput = it },
-                label = { Text("Distance sur la carte (km)") }, singleLine = true,
+                label = { Text("Distance du trajet (km, modifiable)") }, singleLine = true,
                 modifier = Modifier.fillMaxWidth()) }
-            item { Text("Reporte la distance indiquée sur la carte du livre, page 51. Les itinéraires ne sont pas encore calculés automatiquement.") }
+            item { Text("En profil novice, 1 km de carte représente 1 minute d'endurance. La saisie manuelle reste disponible.", style = MaterialTheme.typography.bodySmall) }
             if (state.character.profileType == "advanced" && state.character.className == "Cavalier") {
                 item {
-                    val ready = !dailyState(state).cavalierUsed && selectedPlace != state.character.location && !pending
+                    val used = dailyState(state).cavalierUsed
+                    val available = !used && !pending && mapAdjacent.isNotEmpty()
                     Card(border = BorderStroke(1.dp, Color(0xFF97784A))) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("🐎 Téléportation du Cavalier", style = MaterialTheme.typography.titleMedium)
-                            Text(if (dailyState(state).cavalierUsed) "Pouvoir déjà utilisé aujourd’hui." else "Une fois par jour : rejoindre instantanément une zone adjacente, sans kilomètres ni rencontre.")
-                            Text("La carte officielle n’est pas encore numérisée : vérifie que ${selectedPlace} est directement adjacente à ${state.character.location} (livre p. 51).")
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(checked = cavalierAdjacencyConfirmed, onCheckedChange = { cavalierAdjacencyConfirmed = it }, enabled = ready)
-                                Text("J’ai vérifié l’adjacence sur la carte officielle")
+                            Text(if (used) "Pouvoir déjà utilisé aujourd’hui."
+                                else "Une fois par jour : une liaison directe en pointillés sur la carte p. 51, sans km ni rencontre.")
+                            if (mapAdjacent.isEmpty()) {
+                                Text("Aucune liaison directe renseignée pour ${state.character.location} ; consultez le livre. Téléportation non disponible ici.",
+                                    color = Color(0xFFF0B44E))
+                            } else {
+                                Box {
+                                    OutlinedButton(onClick = { teleportExpanded = true }, enabled = available) {
+                                        Text("Zone adjacente : ${if (mapAdjacent.any { it.first == teleportTarget }) teleportTarget else mapAdjacent.first().first} ▾")
+                                    }
+                                    DropdownMenu(expanded = teleportExpanded, onDismissRequest = { teleportExpanded = false }) {
+                                        mapAdjacent.forEach { (neighbor, length) ->
+                                            DropdownMenuItem(text = { Text("$neighbor · $length km") }, onClick = {
+                                                teleportTarget = neighbor
+                                                teleportExpanded = false
+                                            })
+                                        }
+                                    }
+                                }
+                                Text("Adjacence vérifiée automatiquement sur le graphe de la carte officielle.",
+                                    style = MaterialTheme.typography.bodySmall)
+                                val target = teleportTarget.takeIf { place -> mapAdjacent.any { it.first == place } }
+                                    ?: mapAdjacent.first().first
+                                Button(onClick = { onCavalier(target) }, enabled = available,
+                                    modifier = Modifier.fillMaxWidth()) { Text("Téléporter à $target (1/jour)") }
                             }
-                            Button(onClick = { onCavalier(selectedPlace); cavalierAdjacencyConfirmed = false },
-                                enabled = ready && cavalierAdjacencyConfirmed,
-                                modifier = Modifier.fillMaxWidth()) { Text("Téléporter à $selectedPlace (1/jour)") }
                         }
                     }
                 }
@@ -541,8 +718,8 @@ private val fitlandPlaces = listOf(
                 }
                 if (scoutChosen && available) Text("Distance à parcourir : ${"%.2f".format((distanceInput.replace(',','.').toDoubleOrNull() ?: 0.0) / 2)} km ${if (bard) "(règle maison)" else "(livre p. 41)"}")
             }
-            item { Button(enabled = (distanceInput.replace(',','.').toDoubleOrNull() ?: 0.0) > 0.0 &&
-                selectedPlace != state.character.location,
+            item { Button(enabled = (distanceInput.replace(',','.').toDoubleOrNull()?.let { it.isFinite() && it > 0.0 } == true) &&
+                selectedPlace != state.character.location && !pending,
                 onClick = { onPlan(selectedPlace, distanceInput.replace(',','.').toDouble(), scoutChosen, scoutChosen && bardAudacious) ; scoutChosen = false; bardAudacious = false },
                 modifier = Modifier.fillMaxWidth()) { Text("Démarrer le trajet") } }
         } else {
@@ -1468,6 +1645,7 @@ private fun dailyState(s: AppState): AppState {
 
 private fun planJourney(state: AppState, destination: String, km: Double, scout: Boolean, bardAudacious: Boolean): AppState {
     val s = dailyState(state)
+    if (!km.isFinite() || km <= 0.0 || destination == s.character.location || destination !in fitlandPlaces || s.lastEncounter != null || s.destinationKm > 0.0) return s
     val allowed = scout && s.character.profileType == "advanced" && s.character.className == "Éclaireur" && s.scoutUses < 2
     val bard = scout && s.character.profileType == "advanced" && s.character.className == "Barde" && s.bardUses < 2
     val effective = if (allowed || bard) km / 2.0 else km
@@ -1495,17 +1673,16 @@ private fun activateWarrior(state: AppState): AppState {
 private fun warriorDamage(state: AppState, damage: Int): Int =
     if (state.warriorActive) (damage.toLong() * 2).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else damage
 
-// Livre p. 41 : téléportation d'une zone adjacente, 1 fois par jour.
-// L'adjacence est vérifiée et confirmée manuellement sur la carte p. 51 :
-// l'application ne prétend pas disposer du graphe officiel des zones.
+// Livre p. 41 : téléportation une fois par jour, UNIQUEMENT sur un lien direct
+// du graphe transcrit de la carte officielle p. 51 (aucun contrôle manuel contournable).
 private fun useCavalierAbility(state: AppState, target: String): AppState {
     val s = dailyState(state)
     if (s.character.profileType != "advanced" || s.character.className != "Cavalier" ||
         s.cavalierUsed || s.destinationKm > 0.0 || s.lastEncounter != null ||
-        target !in fitlandPlaces || target == s.character.location) return s
+        mapNeighbors(s.character.location).none { it.first == target }) return s
     return s.copy(character = s.character.copy(location = target), cavalierUsed = true,
         bardJourney = false, destination = "", destinationKm = 0.0, distance = 0.0,
-        log = (listOf("Cavalier : téléportation depuis ${s.character.location} vers $target (zone adjacente confirmée sur la carte officielle), utilisation quotidienne consommée. Aucun km ni rencontre.") + s.log).take(100))
+        log = (listOf("Cavalier : téléportation depuis ${s.character.location} vers $target (liaison directe confirmée par carte p. 51), utilisation quotidienne consommée. Aucun km ni rencontre.") + s.log).take(100))
 }
 
 // Livre p. 41-42 : le pouvoir agit sur UN dé, que ce soit parmi les 7D6

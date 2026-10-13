@@ -1,3 +1,12 @@
+## 1.22.0 — Carte officielle, itinéraires et Cavalier automatisé
+- Carte de la page 51 intégrée hors ligne et consultable par zoom tactile.
+- Graphe de 28 liaisons directes transcrites depuis les pointillés et distances de la carte du Milieu du Disque-Fonte ; itinéraire le plus court et distance suggérée entre les villes reliées, sans raccourci via les zones à cadenas.
+- Distances de carte automatiquement proposées dans la préparation du trajet, saisie manuelle toujours possible lorsque le chemin n’est pas renseigné ou si le joueur suit un autre itinéraire.
+- Cavalier : liste automatique des zones directement adjacentes à la position courante, validation de l’adjacence aussi côté logique du jeu. Pouvoir toujours limité à une fois par jour ; pas de trajet actif ni de rencontre en cours.
+- Île des poids guidés : aucun chemin pointillé vers le continent dans la carte p. 51 ; trajets à renseigner manuellement et téléportation automatiquement indisponible depuis ce lieu.
+- Zones verrouillées : avertissement explicite, conditions d’accès laissées aux chapitres du livre ; le trajet ne les utilise pas comme raccourcis intermédiaires.
+- Aucune modification des combats, classes, objets, signatures debug ou sauvegardes. versionCode 125.
+
 # Historique des versions — Dungeon of Fitness
 
 La version courante est toujours définie dans `app/build.gradle.kts` (`versionName` et `versionCode`), et affichée automatiquement dans l’application via `BuildConfig.VERSION_NAME`.
