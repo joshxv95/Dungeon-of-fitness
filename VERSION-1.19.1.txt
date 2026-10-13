@@ -1,2 +1,0 @@
-Dungeon of Fitness v1.19.1
-Mode test : remise à zéro des capacités quotidiennes, diagnostic des rencontres Barde.
