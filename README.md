@@ -104,3 +104,9 @@ Consulter le livre pour les règles officielles. Les écarts doivent être indiq
 - Les dégâts entrés manuellement sont considérés **bruts** et les bonus actifs Guerrier/Oracle y sont appliqués automatiquement ; les dégâts fixes des Shakers restent inchangés.
 - Les états sont sauvegardés, les pouvoirs du voyage expirent à l'arrivée ou à la fuite. Un raccourci de Barde compagnon ne se cumule pas avec une capacité de classe.
 - Exécuter les tests purs sans Android : `kotlinc app/src/main/java/com/dungeonoffitness/app/CompanionRules.kt tests/CompanionRulesTest.kt -include-runtime -d tests.jar && java -jar tests.jar`.
+
+### Nouveautés 2.1.0 — Notifications d'aventure
+
+Pendant une session de podomètre, la notification permanente de marche reste discrète. Lorsque les pas atteignent **le prochain seuil de rencontre**, **une ville intermédiaire** ou **la destination**, le service arrête le comptage et publie une **nouvelle notification prioritaire** dans le canal Android « Événements d’aventure ». Cette notification décrit l'événement ; en la touchant, l'onglet **Aventure** s'ouvre pour résoudre la rencontre ou confirmer le passage/l'arrivée.
+
+La notification exige l'autorisation Android « Notifications » et peut être silencieuse/bloquée par les réglages du téléphone, le mode Ne pas déranger ou les restrictions système. Le fonctionnement du podomètre et le blocage au seuil ne dépendent **pas** de cette autorisation. Les pas supplémentaires après l'arrêt ne sont pas crédités. Voir `TESTS-V2.1.md`.

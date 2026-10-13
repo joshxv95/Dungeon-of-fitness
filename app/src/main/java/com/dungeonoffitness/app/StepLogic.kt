@@ -21,3 +21,21 @@ internal fun accumulateSessionSteps(current: Int, incoming: Int, cap: Int): Int 
     (current.toLong() + incoming.coerceAtLeast(0).toLong()).coerceIn(0, cap.coerceAtLeast(0).toLong()).toInt()
 
 internal fun stepsToJourneyKm(steps: Int): Double = steps.coerceAtLeast(0).toDouble() * METERS_PER_STEP / 1000.0
+
+/** Priorité au seuil de rencontre si une rencontre et une arrivée tombent au même mètre. */
+internal fun stepStopKind(distanceToStopKm: Double, distanceToEncounterKm: Double,
+                           intermediateWaypoint: Boolean): String =
+    if (distanceToEncounterKm.isFinite() && distanceToEncounterKm <= distanceToStopKm + 0.00000001)
+        "encounter"
+    else if (intermediateWaypoint) "waypoint"
+    else "arrival"
+
+/** Texte de l'alerte, déterminé dès le lancement et conservé si l'activité se ferme. */
+internal fun stepEventMessage(kind: String, destination: String): Pair<String, String> = when (kind) {
+    "encounter" -> "⚔️ Rencontre !" to
+        "Seuil de rencontre atteint : le podomètre est arrêté. Ouvre Aventure pour découvrir les adversaires et combattre."
+    "waypoint" -> "🧭 Étape atteinte !" to
+        "Passage à $destination. Le podomètre est arrêté : ouvre Aventure et confirme le passage avant de repartir."
+    else -> "🏁 Destination atteinte !" to
+        "Arrivée à $destination. Le podomètre est arrêté : ouvre Aventure pour valider ton arrivée."
+}

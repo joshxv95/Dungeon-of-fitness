@@ -1,6 +1,7 @@
 package com.dungeonoffitness.app
 
 import android.os.Bundle
+import android.content.Intent
 import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -260,14 +261,25 @@ private data class AppState(
 )
 
 class MainActivity : ComponentActivity() {
+    companion object { const val EXTRA_OPEN_ADVENTURE = "com.dungeonoffitness.OPEN_ADVENTURE" }
+    // Chaque clic sur une alerte ouvre l'onglet Aventure, même si l'activité est déjà lancée.
+    private var adventureNavigationToken by mutableIntStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { DungeonApp() }
+        if (intent?.getBooleanExtra(EXTRA_OPEN_ADVENTURE, false) == true) adventureNavigationToken++
+        setContent { DungeonApp(adventureNavigationToken) }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_OPEN_ADVENTURE, false)) adventureNavigationToken++
     }
 }
 
 @Composable
-fun DungeonApp() {
+fun DungeonApp(adventureNavigationToken: Int = 0) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var state by remember { mutableStateOf(loadState(context)) }
     fun update(next: AppState) { state = next; saveState(context, next) }
@@ -307,10 +319,20 @@ fun DungeonApp() {
         val game = state
         val old = StepSessionStore.read(context)
         if (old.active || (old.id == game.stepSessionId && old.steps > game.stepAppliedSteps)) return
-        val cap = nextStepBoundary(game)?.let(::stepsUntilBoundary) ?: 0
+        val boundaryKm = nextStepBoundary(game) ?: return
+        val cap = stepsUntilBoundary(boundaryKm)
         if (cap <= 0 || game.character.profileType == "novice") return
+        val stageEnd = if (validGuidedRoute(game)) nextRouteEnd(game) else game.destinationKm
+        val spacing = if ("Le Troll Conteur" in availableCompanions(game)) 3.0 else 6.0
+        val count = kotlin.math.floor((game.totalTravelKm + 0.00000001) / spacing).toInt()
+        val nextEncounter = if (game.retreatActive) Double.POSITIVE_INFINITY
+            else ((count + 1) * spacing - game.totalTravelKm).coerceAtLeast(0.0)
+        val stopKind = stepStopKind(boundaryKm, nextEncounter,
+            validGuidedRoute(game) && game.routeLegIndex < game.routeLegKm.lastIndex)
+        val stopPlace = if (stopKind == "waypoint") game.routeStops[game.routeLegIndex + 1]
+            else game.destination
         try {
-            val session = StepSessionStore.begin(context, cap)
+            val session = StepSessionStore.begin(context, cap, stopKind, stopPlace)
             // Sauvegarde du curseur d'abord, puis lancement du capteur.
             update(game.copy(stepSessionId = session.id, stepAppliedSteps = 0,
                 log = (listOf("👣 Podomètre lancé : plafond de $cap pas avant la prochaine rencontre ou étape.") + game.log).take(100)))
@@ -346,6 +368,9 @@ fun DungeonApp() {
     }
     val stepBusy = stepSnapshot.active || (stepSnapshot.id == state.stepSessionId && stepSnapshot.steps > state.stepAppliedSteps)
     var tab by remember { mutableStateOf("home") }
+    LaunchedEffect(adventureNavigationToken) {
+        if (adventureNavigationToken > 0) tab = "adventure"
+    }
     var resetDialog by remember { mutableStateOf(false) }
     MaterialTheme(colorScheme = darkColorScheme(
         primary = Color(0xFFE5B66C), onPrimary = Color(0xFF211609),
@@ -1785,6 +1810,8 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 }
 
 @Composable private fun ApplicationInfo(state: AppState, onResetDailyTests: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var notificationTestFeedback by remember { mutableStateOf("") }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
         item { Text("Dungeon of Fitness · Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleLarge) }
@@ -1792,12 +1819,21 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         item { Text("Éclaireur : ${dailyState(state).scoutUses}/2 · Barde : ${dailyState(state).bardUses}/2 · Guerrier : ${if (dailyState(state).warriorUsed) "utilisé" else "disponible"} · Cavalier : ${if (dailyState(state).cavalierUsed) "utilisé" else "disponible"}.") }
         item { OutlinedButton(onClick = onResetDailyTests, modifier = Modifier.fillMaxWidth()) { Text("MODE TEST : remettre les utilisations du jour à zéro") } }
         item { Text("Ne supprime ni le personnage, ni les PO, ni l’inventaire, ni les kilomètres, ni le trajet ou le combat en cours. Le bonus Guerrier déjà activé pendant le combat reste actif.", style = MaterialTheme.typography.bodySmall) }
+        item { Text("Mode test — notifications", style = MaterialTheme.typography.titleMedium) }
+        item { OutlinedButton(onClick = {
+            notificationTestFeedback = if (StepTrackingService.sendTestNotification(context))
+                "Notification de test envoyée. Vérifie les notifications du téléphone ; touche-la pour ouvrir Aventure."
+            else "Notification bloquée par Android : autorise les notifications et le canal Événements d’aventure dans les paramètres du téléphone."
+        }, modifier = Modifier.fillMaxWidth()) { Text("MODE TEST : envoyer une notification") } }
+        if (notificationTestFeedback.isNotBlank()) item { Text(notificationTestFeedback, style = MaterialTheme.typography.bodySmall) }
+        item { Text("Ce test n'utilise pas le capteur et ne modifie ni les pas ni le trajet en cours.", style = MaterialTheme.typography.bodySmall) }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
             "Planification manuelle d'un trajet sur la carte du livre",
             "Suivi des distances cumulées et validation d'arrivée",
             "Podomètre optionnel (1 pas = 1 m), sessions pause/reprise, seuil de rencontre et suivi écran verrouillé",
+            "Alertes distinctes de rencontre, étape et arrivée, avec ouverture directe d'Aventure",
             "Rencontres : table officielle Fitland (7D6), quantité, contexte et PV",
             "Arme active et bonus de contexte des gants de vétéran",
             "Historique des dés (7D6, quantité et contexte), et manipulation Mage/Moine",
@@ -1995,7 +2031,7 @@ private fun nextStepBoundary(s: AppState): Double? {
 ) {
     Card(border = BorderStroke(1.dp, Color(0xFF97784A))) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("👣 Podomètre — Version 2.0", style = MaterialTheme.typography.titleMedium)
+            Text("👣 Podomètre — Version 2.1", style = MaterialTheme.typography.titleMedium)
             Text("1 pas détecté = 1 mètre de progression (convention de jeu, pas une mesure GPS).",
                 style = MaterialTheme.typography.bodySmall)
             if (state.character.profileType == "novice") {
@@ -2013,7 +2049,7 @@ private fun nextStepBoundary(s: AppState): Double? {
                     "starting" -> "Démarrage du capteur…"
                     "running" -> if (session.ready) "En marche — écran verrouillable" else "En attente de la première mesure du capteur…"
                     "paused" -> "En pause — aucun nouveau pas compté"
-                    "completed" -> "Seuil atteint ! Ouvre la rencontre ou confirme l'étape."
+                    "completed" -> stepEventMessage(session.stopKind, session.stopPlace).first + " Ouvre Aventure."
                     "stopped" -> "Session arrêtée"
                     "error" -> "Capteur indisponible"
                     else -> "Prêt à commencer"
@@ -2044,7 +2080,14 @@ private fun nextStepBoundary(s: AppState): Double? {
                 if (busy) Text("Ajout manuel de kilomètres désactivé pendant cette session (anti-doublon).",
                     style = MaterialTheme.typography.bodySmall)
                 if (notice.isNotBlank()) Text(notice, style = MaterialTheme.typography.bodySmall)
-                Text("Le téléphone doit rester sur vous. Le suivi est arrêté à chaque rencontre ou étape : les pas effectués ensuite ne sont pas crédités. Les restrictions d'énergie du téléphone peuvent affecter le comptage en arrière-plan.",
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                val alertsAllowed = nm.areNotificationsEnabled() &&
+                    (nm.getNotificationChannel(StepTrackingService.EVENT_CHANNEL_ID)?.importance
+                        ?: android.app.NotificationManager.IMPORTANCE_HIGH) > android.app.NotificationManager.IMPORTANCE_NONE
+                if (!alertsAllowed) Text("⚠️ Les alertes sont désactivées dans Android. Le podomètre fonctionne, mais tu ne recevras pas la notification de rencontre ou d'arrivée. Active les notifications de Dungeon of Fitness dans les paramètres du téléphone.",
+                    color = Color(0xFFEBC582), style = MaterialTheme.typography.bodySmall)
+                Text("Une notification d'aventure est envoyée à chaque seuil de rencontre, étape ou arrivée, si les notifications sont autorisées. Le suivi s'arrête au seuil : les pas supplémentaires ne sont pas crédités. Les restrictions d'énergie peuvent affecter le comptage écran éteint.",
                     style = MaterialTheme.typography.bodySmall)
             }
         }

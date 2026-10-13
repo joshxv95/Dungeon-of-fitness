@@ -1,3 +1,12 @@
+## 2.1.0 — Notifications des événements du podomètre
+- Notification d'**alerte distincte** dans un nouveau canal haute importance « Événements d’aventure » dès que la session atteint son plafond : rencontre, étape intermédiaire ou destination.
+- Texte adapté à l'événement : « Rencontre ! », « Étape atteinte ! » ou « Destination atteinte ! ». Le podomètre s'arrête toujours avant de reprendre la marche, aucun combat ni passage n'est validé automatiquement.
+- Cliquer l'alerte ouvre directement l'onglet Aventure, même si l'activité Android est déjà ouverte ; la notification est effaçable après consultation.
+- Nature de l'arrêt et ville-cible conservées avec la session dans les préférences, même si l'écran est verrouillé ou l'application fermée.
+- Bouton **MODE TEST : envoyer une notification** dans Application, sans capteur ni changement de progression, pour vérifier le canal à domicile.
+- Autorisation POST_NOTIFICATIONS demandée comme dans la v2.0 ; si refusée ou si le canal est désactivé dans Android, le compteur fonctionne mais l'alerte système peut être invisible. Le statut reste affiché dans Aventure.
+- Mode manuel, règles des classes, passages intermédiaires, sauvegardes et signature inchangés. VersionCode 201. Tests de logique des alertes ajoutés ; compilation Android à vérifier sur GitHub Actions.
+
 ## 2.0.0 — Comptage des pas réel, sessions de marche et synchronisation du voyage
 - Nouveau podomètre facultatif : lecture du capteur matériel `TYPE_STEP_COUNTER` (repli `TYPE_STEP_DETECTOR`), convention **1 pas = 1 mètre** de distance de jeu. Aucun GPS, aucune connexion réseau. Disponible pour le profil avancé ; mode novice inchangé (minutes d'endurance).
 - Service Android de premier plan (`health`) avec notification, commandes pause/reprise/arrêt, demande de l'autorisation activité physique et, sur Android 13+, notifications facultatives.
