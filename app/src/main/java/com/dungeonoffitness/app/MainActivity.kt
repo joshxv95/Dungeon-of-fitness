@@ -202,7 +202,7 @@ private fun attackDamage(weapon: Weapon, count: Int, inventory: List<String>, pa
     return ((weapon.damage.toLong() * count + bonus) * (if (vigorActive) 2L else 1L)).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 }
 
-private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String, val roll: Int = 0, val remainingHp: Int = hp * quantity, val effect: String = "", val safe: Boolean = false, val contextDie: Int = 0, val contextBonus: Int = 0, val contextWeapon: String = "", val initialQuantity: Int = quantity, val illusionDie: Int = 0, val enemyHp: List<Int> = emptyList(), val hunterUsed: Boolean = false, val mysticUsed: Boolean = false, val mysticDescription: String = "", val typeDice: List<Int> = emptyList(), val quantityDie: Int = 0)
+private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String, val roll: Int = 0, val remainingHp: Int = hp * quantity, val effect: String = "", val safe: Boolean = false, val contextDie: Int = 0, val contextBonus: Int = 0, val contextWeapon: String = "", val initialQuantity: Int = quantity, val illusionDie: Int = 0, val enemyHp: List<Int> = emptyList(), val hunterUsed: Boolean = false, val mysticUsed: Boolean = false, val mysticDescription: String = "", val typeDice: List<Int> = emptyList(), val quantityDie: Int = 0, val bulkerUsed: Boolean = false)
 
 private data class AppState(
     val character: Character = Character(),
@@ -237,6 +237,10 @@ private data class AppState(
     val visitedPlaces: List<String> = emptyList(),
     val completedChapters: List<String> = emptyList(),
     val manualChapterAccess: List<String> = emptyList(),
+    val manualCompanions: List<String> = emptyList(),
+    val dismissedCompanions: List<String> = emptyList(),
+    val fairyTeleportUsed: Boolean = false,
+    val claimedChapterLoot: List<String> = emptyList(),
     val quests: List<String> = listOf("Créer et suivre votre profil", "Tenir votre journal d'entraînement")
 )
 
@@ -261,7 +265,7 @@ fun DungeonApp() {
     )) {
         Scaffold(bottomBar = { NavigationBar {
             listOf("home" to "Accueil", "adventure" to "Aventure", "character" to "Personnage", "inventory" to "Sac", "journal" to "Journal", "application" to "Application").forEach { (id, label) ->
-                NavigationBarItem(selected = tab == id || (id == "adventure" && tab == "chapters"), onClick = { tab = id }, icon = { Text(if (id == "home") "⌂" else if (id == "adventure") "⚔" else if (id == "character") "♙" else if (id == "inventory") "◆" else if (id == "journal") "▤" else "⚙") }, label = { Text(label) })
+                NavigationBarItem(selected = tab == id || (id == "adventure" && tab in listOf("chapters", "companions")), onClick = { tab = id }, icon = { Text(if (id == "home") "⌂" else if (id == "adventure") "⚔" else if (id == "character") "♙" else if (id == "inventory") "◆" else if (id == "journal") "▤" else "⚙") }, label = { Text(label) })
             }
         }}) { pad ->
             Box(Modifier.padding(pad).fillMaxSize()) {
@@ -269,9 +273,13 @@ fun DungeonApp() {
                     "home" -> Home(state) { tab = "adventure" }
                     "chapters" -> CampaignChapters(state, onBack = { tab = "adventure" },
                         onCompletionChange = { title, done -> update(setChapterCompleted(state, title, done)) },
-                        onAccessChange = { title, acquired -> update(confirmChapterAccess(state, title, acquired)) })
+                        onAccessChange = { title, acquired -> update(confirmChapterAccess(state, title, acquired)) },
+                        onClaimLoot = { title -> update(claimChapterLoot(state, title)) })
+                    "companions" -> CompanionsScreen(state, onBack = { tab = "adventure" },
+                        onCompanionChange = { name, acquired -> update(setCompanionPresence(state, name, acquired)) })
                     "adventure" -> Adventure(state,
                         onOpenChapters = { tab = "chapters" },
+                        onOpenCompanions = { tab = "companions" },
                         onTravel = { km -> update(travel(state, km)) },
                         onWarrior = { update(activateWarrior(state)) },
                         onResolve = { damage -> update(resolve(state, damage)) },
@@ -294,6 +302,8 @@ fun DungeonApp() {
                         onSkip = { update(skipEncounter(state)) },
                         onFlee = { towardDestination -> update(fleeEncounter(state, towardDestination)) },
                         onHunt = { update(useHunterAbility(state)) },
+                        onBulker = { update(useBulkerCompanion(state)) },
+                        onFairyTeleport = { target -> update(useFairyTeleport(state, target)) },
                         onMystic = { kind, dieIndex, delta -> update(useMysticDie(state, kind, dieIndex, delta)) },
                         onCavalier = { place -> update(useCavalierAbility(state, place)) },
                         onMeditate = {
@@ -508,22 +518,23 @@ private val restrictedMapPlaces = setOf(
 // Les contenus narratifs et les exercices restent dans le livre papier : on enregistre la progression.
 private data class StoryChapter(
     val title: String, val page: Int, val restricted: Boolean = false,
-    val place: String? = title, val grants: List<String> = emptyList()
+    val place: String? = title, val grants: List<String> = emptyList(),
+    val companions: List<String> = emptyList(), val loot: List<String> = emptyList()
 )
 private val storyChapters = listOf(
     StoryChapter("Fontaria", 68),
     StoryChapter("Entrepôts Shaker+©", 70, place = "Entrepôts Shaker+"),
-    StoryChapter("Tique-Couenne", 72),
-    StoryChapter("Nosferathon", 74),
-    StoryChapter("Omega Beach", 76),
+    StoryChapter("Tique-Couenne", 72, companions = listOf("Oracle de Tasmina")),
+    StoryChapter("Nosferathon", 74, grants = listOf("Salle secrète de l’Oasis"), companions = listOf("Igor")),
+    StoryChapter("Omega Beach", 76, companions = listOf("Bulker Fruité")),
     StoryChapter("Garde Froide", 78),
     StoryChapter("Litière Ville", 80),
     StoryChapter("Mont Stepper", 82),
-    StoryChapter("Tombe d’Arno", 84),
+    StoryChapter("Tombe d’Arno", 84, grants = listOf("Île des poids guidés")),
     StoryChapter("Temple de Tasmina", 86),
     StoryChapter("Plaine du Fitland", 88),
     StoryChapter("Sud du Fitland", 90),
-    StoryChapter("Forêt de Brise Mollets", 92),
+    StoryChapter("Forêt de Brise Mollets", 92, companions = listOf("La Fée")),
     StoryChapter("Dévers du Fitland", 94),
     StoryChapter("Dunes des sacs crevés", 96),
     StoryChapter("Erythropoiéta", 98),
@@ -534,21 +545,85 @@ private val storyChapters = listOf(
     StoryChapter("Rives de la Mer de Nuages", 108),
     // Ces trois scènes sont situées à Erythropoiéta (livre p.110-114).
     StoryChapter("L’audience du Roi", 110, place = "Erythropoiéta", grants = listOf("Temple de la prophétie")),
-    StoryChapter("L’arène", 112, place = "Erythropoiéta", grants = listOf("Ruines du Golem")),
+    StoryChapter("L’arène", 112, place = "Erythropoiéta", grants = listOf("Ruines du Golem"), companions = listOf("Barde")),
     StoryChapter("Le marché libre", 114, place = "Erythropoiéta"),
-    StoryChapter("Île des poids guidés", 116, restricted = true, grants = listOf("Caverne des nuages sans fin")),
-    StoryChapter("Antre de Mollefesse", 118, restricted = true),
-    StoryChapter("Falaises Olympiques", 120, restricted = true),
-    StoryChapter("Temple de la prophétie", 122, restricted = true, place = "Temple de la Prophétie"),
+    StoryChapter("Île des poids guidés", 116, restricted = true, grants = listOf("Caverne des nuages sans fin"), companions = listOf("Le Gnome Cartographe")),
+    StoryChapter("Antre de Mollefesse", 118, restricted = true, companions = listOf("Le Troll Conteur")),
+    StoryChapter("Falaises Olympiques", 120, restricted = true, grants = listOf("Antre de Mollefesse")),
+    StoryChapter("Temple de la prophétie", 122, restricted = true, place = "Temple de la Prophétie", grants = listOf("Exploration du Temple de Tasmina"), loot = listOf("Shaker vigueur", "Shaker quantique", "Shaker sombre")),
     StoryChapter("Caverne des nuages sans fin", 124, restricted = true, place = "Caverne des Nuages sans fin"),
     StoryChapter("Exploration du Temple de Tasmina", 126, restricted = true, place = "Temple de Tasmina"),
-    StoryChapter("Ruines du Golem", 128, restricted = true),
+    StoryChapter("Ruines du Golem", 128, restricted = true, grants = listOf("Falaises Olympiques"), companions = listOf("Le Paladin et le Quêteur")),
     StoryChapter("Salle secrète de l’Oasis", 130, restricted = true, place = "Oasis Interdite"),
     StoryChapter("La Communauté des Abdos", 132, restricted = true, place = null),
     StoryChapter("L’audience du Khôl", 134, restricted = true, place = "Khôlkozia"),
     StoryChapter("Les ombres de Nosferathon", 136, restricted = true, place = "Nosferathon"),
     StoryChapter("Au-delà de la fin", 138, restricted = true, place = null)
 )
+// Compagnons de la campagne : noms et pouvoirs issus des chapitres p. 72-129.
+// Certaines capacités demandent une action hors téléphone ; elles sont documentées mais pas simulées.
+private data class StoryCompanion(val name: String, val source: String, val ability: String, val automatic: Boolean)
+private val storyCompanions = listOf(
+    StoryCompanion("Oracle de Tasmina", "Tique-Couenne · p. 73", "Après une Prière à votre divinité : dégâts ×2 pour un affrontement, ou quitter un lieu pour bénéficier de l'effet pendant un déplacement.", false),
+    StoryCompanion("Igor", "Nosferathon · p. 75", "Donne accès à la Salle secrète de l’Oasis ; aucun pouvoir de combat n'est indiqué.", true),
+    StoryCompanion("Bulker Fruité", "Omega Beach · p. 76", "Neutralise un adversaire en discutant avec lui pendant un voyage entre deux zones.", true),
+    StoryCompanion("La Fée", "Forêt de Brise Mollets · p. 93", "Téléporte une fois dans toute la campagne vers une zone accessible de votre choix.", true),
+    StoryCompanion("Barde", "L’arène · p. 113", "Divise par deux une distance entre zones lorsque vous écoutez de la musique ; non cumulée automatiquement avec les pouvoirs de classe.", false),
+    StoryCompanion("Le Gnome Cartographe", "Île des poids guidés · p. 117", "Donne accès à la Caverne des nuages sans fin.", true),
+    StoryCompanion("Le Troll Conteur", "Antre de Mollefesse · p. 119", "Multiplie par deux la fréquence des rencontres (un jet tous les 3 km plutôt que 6).", true),
+    StoryCompanion("Le Paladin et le Quêteur", "Ruines du Golem · p. 129", "Après une Prière avant de quitter une zone, retirez 2 au dé de quantité d'une rencontre choisie pendant le prochain voyage.", false)
+)
+private fun availableCompanions(s: AppState): Set<String> =
+    (s.manualCompanions + storyChapters.filter { it.title in s.completedChapters }.flatMap { it.companions })
+        .filter { it !in s.dismissedCompanions }.toSet()
+
+private fun setCompanionPresence(s: AppState, name: String, acquired: Boolean): AppState {
+    if (storyCompanions.none { it.name == name }) return s
+    val manual = if (acquired) (s.manualCompanions + name).distinct() else s.manualCompanions - name
+    val dismissed = if (acquired) s.dismissedCompanions - name else (s.dismissedCompanions + name).distinct()
+    return s.copy(manualCompanions = manual, dismissedCompanions = dismissed,
+        log = (listOf("Compagnon $name : ${if (acquired) "présence confirmée d'après le livre" else "retiré de l'équipe"} (suivi manuel).") + s.log).take(100))
+}
+
+// Une seule attribution d'objets par chapitre, même après annulation et revalidation.
+private fun claimChapterLoot(s: AppState, title: String): AppState {
+    val chapter = storyChapters.firstOrNull { it.title == title } ?: return s
+    if (title !in s.completedChapters || title in s.claimedChapterLoot || chapter.loot.isEmpty() ||
+        s.destinationKm > 0.0 || s.lastEncounter != null) return s
+    return s.copy(inventory = s.inventory + chapter.loot,
+        claimedChapterLoot = (s.claimedChapterLoot + title).distinct(),
+        log = (listOf("Récompense p. ${chapter.page} récupérée : ${chapter.loot.joinToString()}. Une seule fois ; les effets non implémentés restent manuels.") + s.log).take(100))
+}
+
+private fun useBulkerCompanion(s: AppState): AppState {
+    val e = s.lastEncounter ?: return s
+    if ("Bulker Fruité" !in availableCompanions(s) || s.destinationKm <= 0.0 ||
+        e.safe || e.bulkerUsed || e.quantity < 1 || encounterHp(e).any { it != e.hp }) return s
+    val hp = encounterHp(e).dropLast(1)
+    val remaining = hp.size
+    if (remaining == 0) return s.copy(lastEncounter = null, meditationActive = false, vigorActive = false,
+        quantumMode = "", illusionActive = false, warriorActive = false,
+        log = (listOf("Bulker Fruité a neutralisé l'unique adversaire en discutant avec lui : rencontre résolue sans combat ni butin (p. 76).") + s.log).take(100))
+    val reward = (e.reward.toLong() * remaining / e.quantity).toInt()
+    return s.copy(lastEncounter = e.copy(quantity = remaining, remainingHp = hp.sum(), enemyHp = hp,
+        reward = reward, bulkerUsed = true), log =
+        (listOf("Bulker Fruité : 1 adversaire neutralisé par discussion ; $remaining restant(s), butin ajusté à $reward PO (p. 76).") + s.log).take(100))
+}
+
+private fun fairyDestinations(s: AppState): List<String> {
+    val access = availableChapterAccess(s)
+    return fitlandPlaces.filter { place -> place != s.character.location &&
+        (place !in restrictedMapPlaces || storyChapters.any { it.place == place && it.title in access }) }
+}
+private fun useFairyTeleport(s: AppState, target: String): AppState {
+    if ("La Fée" !in availableCompanions(s) || s.fairyTeleportUsed || s.destinationKm > 0.0 ||
+        s.lastEncounter != null || target !in fairyDestinations(s)) return s
+    return s.copy(character = s.character.copy(location = target), fairyTeleportUsed = true,
+        visitedPlaces = (s.visitedPlaces + s.character.location + target).distinct(),
+        routeStops = emptyList(), routeLegKm = emptyList(), routeLegIndex = 0,
+        log = (listOf("La Fée : téléportation UNIQUE de la campagne depuis ${s.character.location} vers $target (p. 93). Aucun km, aucune rencontre, chapitre non validé.") + s.log).take(100))
+}
+
 private fun availableChapterAccess(s: AppState): Set<String> =
     (s.manualChapterAccess + storyChapters.filter { it.title in s.completedChapters }.flatMap { it.grants }).toSet()
 
@@ -562,7 +637,7 @@ private fun setChapterCompleted(s: AppState, title: String, completed: Boolean):
     if (completed && !canFinishChapter(s, chapter)) return s
     val updated = if (completed) (s.completedChapters + title).distinct() else s.completedChapters - title
     return s.copy(completedChapters = updated, log =
-        (listOf("Chapitre « $title » (p. ${chapter.page}) ${if (completed) "confirmé terminé" else "validation annulée"} par le joueur. Aucun exercice ni récompense automatique.") + s.log).take(100))
+        (listOf("Chapitre « $title » (p. ${chapter.page}) ${if (completed) "confirmé terminé" else "validation annulée"} par le joueur. Les compagnons et accès explicitement accordés sont recalculés ; vérifiez le livre pour les autres conséquences.") + s.log).take(100))
 }
 
 private fun confirmChapterAccess(s: AppState, title: String, acquired: Boolean): AppState {
@@ -572,10 +647,43 @@ private fun confirmChapterAccess(s: AppState, title: String, acquired: Boolean):
         log = (listOf("Accès « ${chapter.title} » ${if (acquired) "confirmé obtenu dans le livre" else "retiré du carnet"} (suivi manuel).") + s.log).take(100))
 }
 
+@Composable private fun CompanionsScreen(
+    state: AppState, onBack: () -> Unit, onCompanionChange: (String, Boolean) -> Unit
+) {
+    val owned = availableCompanions(state)
+    LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item { Text("🤝 Compagnons d'aventure", style = MaterialTheme.typography.headlineSmall, color = Color(0xFFEBC582)) }
+        item { OutlinedButton(onClick = onBack) { Text("← Retour à l'aventure") } }
+        item { Text("${owned.size} / ${storyCompanions.size} compagnons recrutés · Livre p. 47 et chapitres p. 73-129") }
+        item { Text("Le carnet déduit les compagnons des chapitres terminés. Utilisez la confirmation manuelle seulement si vous les avez déjà recrutés dans une sauvegarde ancienne, ou si le récit vous impose de modifier votre groupe.", style = MaterialTheme.typography.bodySmall) }
+        items(storyCompanions, key = { it.name }) { companion ->
+            val present = companion.name in owned
+            val chapterEarned = storyChapters.any { it.title in state.completedChapters && companion.name in it.companions }
+            Card(border = BorderStroke(1.dp, if (present) Color(0xFF4A9C73) else Color(0xFF575460))) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("${if (present) "✅" else "○"} ${companion.name}", style = MaterialTheme.typography.titleMedium)
+                    Text(companion.source, style = MaterialTheme.typography.labelMedium, color = Color(0xFFEBC582))
+                    Text(companion.ability)
+                    Text(if (companion.automatic) "Recrutement et effet indiqué suivis dans la v1.25." else "Effet à appliquer manuellement selon le livre.", style = MaterialTheme.typography.bodySmall)
+                    if (present) {
+                        OutlinedButton(onClick = { onCompanionChange(companion.name, false) }) { Text("Retirer du groupe") }
+                    } else {
+                        OutlinedButton(onClick = { onCompanionChange(companion.name, true) }) { Text("Confirmer son recrutement dans le livre") }
+                    }
+                    if (chapterEarned) Text("Chapitre d'obtention validé. Un retrait manuel prévaut jusqu'à votre nouvelle confirmation.", style = MaterialTheme.typography.bodySmall)
+                    if (companion.name == "La Fée" && present) Text(if (state.fairyTeleportUsed) "✨ Téléportation unique déjà consommée." else "✨ Téléportation unique disponible depuis Aventure.")
+                }
+            }
+        }
+        item { Text("Les capacités de l'Oracle, du Barde compagnon et du Paladin/Quêteur sont détaillées, mais pas encore automatisées. Les objets et PO non explicitement garantis ne sont pas créés.", style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
 @Composable private fun CampaignChapters(
     state: AppState, onBack: () -> Unit,
     onCompletionChange: (String, Boolean) -> Unit,
-    onAccessChange: (String, Boolean) -> Unit
+    onAccessChange: (String, Boolean) -> Unit,
+    onClaimLoot: (String) -> Unit
 ) {
     var category by remember { mutableStateOf("Sur place") }
     val access = availableChapterAccess(state)
@@ -628,7 +736,16 @@ private fun confirmChapterAccess(s: AppState, title: String, acquired: Boolean):
                             Text("🔑 Accès obtenu grâce à un chapitre déjà terminé.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF89C9A1))
                         }
                     }
-                    if (chapter.grants.isNotEmpty()) Text("À la validation, accès accordé : ${chapter.grants.joinToString()} (livre p. ${chapter.page}).", style = MaterialTheme.typography.bodySmall)
+                    if (chapter.grants.isNotEmpty()) Text("🔑 Accès obtenu après validation : ${chapter.grants.joinToString()} (livre p. ${chapter.page}).", style = MaterialTheme.typography.bodySmall)
+                    if (chapter.companions.isNotEmpty()) Text("🤝 Compagnon(s) obtenu(s) : ${chapter.companions.joinToString()} (effets détaillés dans le carnet des compagnons).", style = MaterialTheme.typography.bodySmall)
+                    if (chapter.loot.isNotEmpty()) {
+                        Text("🎒 Objets indiqués par le livre : ${chapter.loot.joinToString()}.", style = MaterialTheme.typography.bodySmall)
+                        if (done && chapter.title !in state.claimedChapterLoot) {
+                            OutlinedButton(onClick = { onClaimLoot(chapter.title) }) { Text("Récupérer ces objets (une fois)") }
+                        } else if (chapter.title in state.claimedChapterLoot) {
+                            Text("✅ Objets récupérés dans le sac ; pas de double attribution après revalidation.", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                     if (done) {
                         OutlinedButton(onClick = { onCompletionChange(chapter.title, false) }) { Text("Annuler la validation") }
                     } else {
@@ -645,7 +762,7 @@ private fun confirmChapterAccess(s: AppState, title: String, acquired: Boolean):
                 }
             }
         }
-        item { Text("Important : un passage pendant un trajet ne valide aucun chapitre. Les récompenses, compagnons et autres effets ne sont pas appliqués automatiquement sauf les accès explicitement indiqués ici. Les épreuves sont à réaliser selon le livre.", style = MaterialTheme.typography.bodySmall) }
+        item { Text("Important : un passage pendant un trajet ne valide aucun chapitre. Les accès et compagnons explicitement indiqués sont suivis automatiquement à la confirmation des chapitres. Certains objets peuvent être récupérés une seule fois. Les épreuves et autres effets restent à vérifier dans le livre. Les épreuves sont à réaliser selon le livre.", style = MaterialTheme.typography.bodySmall) }
     }
 }
 
@@ -758,6 +875,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
 @Composable private fun Adventure(
     state: AppState,
     onOpenChapters: () -> Unit,
+    onOpenCompanions: () -> Unit,
     onTravel: (Double) -> Unit,
     onWarrior: () -> Unit,
     onResolve: (Int) -> Unit,
@@ -765,6 +883,8 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
     onSkip: () -> Unit,
     onFlee: (Boolean) -> Unit,
     onHunt: () -> Unit,
+    onBulker: () -> Unit,
+    onFairyTeleport: (String) -> Unit,
     onMystic: (String, Int, Int) -> Unit,
     onCavalier: (String) -> Unit,
     onMeditate: () -> Unit,
@@ -782,6 +902,9 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
     var followMap by remember(state.character.location) { mutableStateOf(false) }
     var showMap by remember { mutableStateOf(false) }
     var teleportExpanded by remember { mutableStateOf(false) }
+    var fairyExpanded by remember { mutableStateOf(false) }
+    var fairyTarget by remember { mutableStateOf("") }
+    var fairyConfirm by remember { mutableStateOf(false) }
     var teleportTarget by remember(state.character.location) { mutableStateOf(mapNeighbors(state.character.location).firstOrNull()?.first.orEmpty()) }
     var scoutChosen by remember { mutableStateOf(false) }
     var bardAudacious by remember { mutableStateOf(false) }
@@ -800,12 +923,23 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
     val mapTrip = mapRoute(state.character.location, selectedPlace)
     val mapAdjacent = mapNeighbors(state.character.location)
     if (showMap) OfficialMapViewer { showMap = false }
+    if (fairyConfirm) {
+        AlertDialog(onDismissRequest = { fairyConfirm = false },
+            title = { Text("✨ Dernière vérification — la Fée") },
+            text = { Text("Téléportation vers $fairyTarget : une seule fois pendant TOUTE la campagne. Cette action est irréversible et ne valide aucun chapitre. Confirmer ?") },
+            confirmButton = { TextButton(onClick = { onFairyTeleport(fairyTarget); fairyConfirm = false }) { Text("Téléporter une fois") } },
+            dismissButton = { TextButton(onClick = { fairyConfirm = false }) { Text("Annuler") } })
+    }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("🗺️ Expédition", color = Color(0xFFEBC582), style = MaterialTheme.typography.headlineSmall) }
         item { OutlinedButton(onClick = { showMap = true }, modifier = Modifier.fillMaxWidth()) { Text("🗺️ Ouvrir la carte officielle (zoom)") } }
         item { Button(onClick = onOpenChapters, modifier = Modifier.fillMaxWidth()) { Text("📖 Chapitres, accès et progression") } }
+        item { OutlinedButton(onClick = onOpenCompanions, modifier = Modifier.fillMaxWidth()) { Text("🤝 Compagnons (${availableCompanions(state).size})") } }
         item { Text("Position actuelle : ${state.character.location}") }
         item { Text("Classe : ${state.character.className} · Niveau ${state.character.level}") }
+        if ("Le Troll Conteur" in availableCompanions(state)) item {
+            Text("📜 Le Troll Conteur voyage avec vous : jet de rencontre tous les 3 km cumulés (livre p. 119).", color = Color(0xFFEBC582))
+        }
         if (state.character.specialAbility.isNotBlank()) item { Text("Mouvement personnel : ${state.character.specialAbility}", style = MaterialTheme.typography.bodySmall) }
         if (state.character.profileType == "advanced" && state.character.className == "Acrobate") item { Text("Acrobate (livre p. 41) : +2 au jet de contexte ; en cas de fuite, retour au départ OU poursuite vers la destination.") }
         if (state.character.profileType == "advanced" && state.character.className == "Chasseur") item { Text("Chasseur (livre p. 41) : peut réduire de 1 le dé de quantité d’une rencontre choisie pendant un déplacement.") }
@@ -818,6 +952,28 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
         if (state.retreatActive) item { Text("RETOUR DE FUITE : rejoignez ${state.retreatOrigin}. Aucune nouvelle rencontre pendant ce trajet.", color = MaterialTheme.colorScheme.error) }
         item { Text("Selon le livre (p. 41), les trajets sont réalisés réellement à pied, à vélo ou par un autre moyen non motorisé. Pour un novice : 1 km de carte = 1 minute d'endurance.") }
         if (state.destinationKm <= 0.0) {
+            if ("La Fée" in availableCompanions(state)) item {
+                Card(border = BorderStroke(1.dp, Color(0xFF97784A))) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text("✨ La Fée — téléportation de campagne", style = MaterialTheme.typography.titleMedium)
+                        Text(if (state.fairyTeleportUsed) "Déjà utilisée : une seule fois pendant toute l'aventure (livre p. 93)."
+                             else "Choisissez une zone accessible, sans distance ni rencontre. Cette capacité est consommée définitivement.")
+                        if (!state.fairyTeleportUsed && !pending) {
+                            val destinations = fairyDestinations(state)
+                            Box {
+                                OutlinedButton(onClick = { fairyExpanded = true }) { Text("Destination : ${fairyTarget.ifBlank { "Choisir" }} ▾") }
+                                DropdownMenu(expanded = fairyExpanded, onDismissRequest = { fairyExpanded = false }) {
+                                    destinations.forEach { place ->
+                                        DropdownMenuItem(text = { Text(place) }, onClick = { fairyTarget = place; fairyExpanded = false })
+                                    }
+                                }
+                            }
+                            Button(onClick = { fairyConfirm = true }, enabled = fairyTarget in destinations,
+                                modifier = Modifier.fillMaxWidth()) { Text("✨ Utiliser la Fée (confirmation)") }
+                        }
+                    }
+                }
+            }
             item { Text("Préparer un trajet", style = MaterialTheme.typography.titleMedium) }
             item {
                 Box {
@@ -858,7 +1014,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                                     enabled = distanceInput.replace(',', '.').toDoubleOrNull() == mapTrip.km.toDouble())
                                 Text("Suivre chaque étape du trajet sur la carte", style = MaterialTheme.typography.bodySmall)
                             }
-                            Text("Chaque passage intermédiaire sera confirmé sans valider le chapitre correspondant. Les rencontres restent tous les 6 km cumulés.",
+                            Text("Chaque passage intermédiaire sera confirmé sans valider le chapitre correspondant. Rencontres tous les 6 km cumulés (ou 3 km avec le Troll Conteur).",
                                 style = MaterialTheme.typography.bodySmall)
                         } else {
                             Text("Aucun trajet relié par les chemins transcrits depuis cette position. Vérifiez le livre p. 51 et renseignez la distance manuellement.",
@@ -985,7 +1141,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
             }
         }
         item { Text("Progression totale : ${"%.1f".format(state.totalTravelKm)} $unit · Rencontres déclenchées : ${state.encounters}") }
-        item { Text("Une rencontre est déclenchée tous les 6 ${unit} cumulés. Les adversaires et contextes proviennent de la table officielle (p. 42-43). Certains effets spéciaux restent manuels.", style = MaterialTheme.typography.bodySmall) }
+        item { Text("Une rencontre est déclenchée tous les ${if ("Le Troll Conteur" in availableCompanions(state)) 3 else 6} ${unit} cumulés${if ("Le Troll Conteur" in availableCompanions(state)) " (Troll Conteur)" else ""}. Les adversaires et contextes proviennent de la table officielle (p. 42-43). Certains effets spéciaux restent manuels.", style = MaterialTheme.typography.bodySmall) }
         state.lastEncounter?.let { e ->
             item { HorizontalDivider() }
             item { Text("⚔️ RENCONTRE — TABLE DU LIVRE", color = Color(0xFFEBC582), style = MaterialTheme.typography.headlineSmall) }
@@ -993,6 +1149,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                 Text("${e.name} ×${e.quantity} (jet : ${e.roll})", style = MaterialTheme.typography.titleLarge)
                 HealthGauge("❤️ Santé totale des ennemis", encounterHp(e).sum(), e.hp * e.quantity)
                 Text("🪙 Butin potentiel : ${e.reward} PO")
+                if ("Le Troll Conteur" in availableCompanions(state)) Text("📜 Troll Conteur : fréquence des rencontres ×2, jet tous les 3 km.")
                 if (state.bardJourney) {
                     if (e.effect.contains("quantité fixe", ignoreCase = true))
                         Text("Barde audacieux : rencontre à quantité fixe (livre), ni doublement ni bonus de 25 %.", style = MaterialTheme.typography.bodySmall)
@@ -1013,7 +1170,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                 if (e.context == "Une embuscade !") Text("Attention : la durée d’utilisation des objets est doublée. Pour les armes à durée, chaque tranche doit durer deux fois plus longtemps ; les dégâts par tranche restent identiques.")
                 if (e.effect.isNotBlank()) Text("Effet immédiat : ${e.effect}")
                 if (e.mysticDescription.isNotBlank()) Text("Pouvoir de classe : ${e.mysticDescription}")
-                if (state.character.profileType == "advanced" && state.character.className in listOf("Mage", "Moine") && !e.mysticUsed && encounterHp(e).all { it == e.hp } && !e.hunterUsed && !state.illusionActive) {
+                if (state.character.profileType == "advanced" && state.character.className in listOf("Mage", "Moine") && !e.mysticUsed && encounterHp(e).all { it == e.hp } && !e.hunterUsed && !e.bulkerUsed && !state.illusionActive) {
                     Text("🔮 Manipulation d’un dé de rencontre (livre p. 41–42)", style = MaterialTheme.typography.titleMedium)
                     Text(if (state.character.className == "Moine") "Moine : une Prière pour modifier un dé de ±1 ou ±2." else "Mage : modifier gratuitement un seul dé de ±1.")
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -1065,6 +1222,15 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                         OutlinedButton(onClick = onHunt, modifier = Modifier.fillMaxWidth()) { Text("Chasseur — écarter 1 adversaire") }
                     } else if (e.hunterUsed) Text("Capacité Chasseur déjà utilisée sur cette rencontre.")
                     else if (e.quantity <= 1) Text("Chasseur : quantité minimale de 1 retenue pour l’application.")
+                }
+                if ("Bulker Fruité" in availableCompanions(state) && !e.safe && state.destinationKm > 0.0) {
+                    if (!e.bulkerUsed && encounterHp(e).all { it == e.hp }) {
+                        Text("🤝 Bulker Fruité (p. 76) : neutralise 1 adversaire par discussion. Le butin de cet adversaire est retiré.")
+                        OutlinedButton(onClick = onBulker, modifier = Modifier.fillMaxWidth()) {
+                            Text("Confirmer la discussion de Bulker (−1 ennemi)")
+                        }
+                    } else if (e.bulkerUsed) Text("Bulker a déjà neutralisé un adversaire lors de cette rencontre.")
+                    else Text("Bulker ne peut intervenir qu'avant le début des attaques.")
                 }
                 if (!e.safe) {
                     if ("Manuel de méditation" in state.inventory) {
@@ -1512,6 +1678,10 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             }
         } }
         item { Text("Équipement possédé dans cette catégorie", style = MaterialTheme.typography.titleMedium) }
+        if (bagTab == "Consommables" && "Shaker sombre" in state.inventory) item {
+            Text("📖 Shaker sombre : obtenu dans le Temple de la prophétie (p. 123). Son effet n'est pas encore automatisé : consulter le livre.",
+                style = MaterialTheme.typography.bodySmall, color = Color(0xFFEBC582))
+        }
         val owned = state.inventory.filter { name -> when(bagTab) {
             "Armes" -> weapons.any { it.name == name }
             "Soutien" -> supports.any { it.name == name }
@@ -1620,6 +1790,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             }
         }
         items(state.log) { Text(it) }
+        item { Text("🤝 Compagnons présents : ${availableCompanions(state).joinToString().ifEmpty { "aucun" }}") }
         item { Text("Quêtes") }
         items(state.quests) { Text("□ $it") }
     }
@@ -1629,15 +1800,16 @@ private fun travel(s: AppState, km: Double): AppState {
     if (s.lastEncounter != null || s.destinationKm <= 0.0 || !km.isFinite() || km <= 0.0 || hasPendingWaypoint(s)) return s
     val old = s.distance
     val stageEnd = if (validGuidedRoute(s)) nextRouteEnd(s) else s.destinationKm
-    val oldChecks = kotlin.math.floor((s.totalTravelKm + 0.00000001) / 6.0).toInt()
+    val encounterSpacing = if ("Le Troll Conteur" in availableCompanions(s)) 3.0 else 6.0
+    val oldChecks = kotlin.math.floor((s.totalTravelKm + 0.00000001) / encounterSpacing).toInt()
     val beforeEncounter = if (s.retreatActive) Double.POSITIVE_INFINITY
-        else ((oldChecks + 1) * 6.0 - s.totalTravelKm).coerceAtLeast(0.0)
+        else ((oldChecks + 1) * encounterSpacing - s.totalTravelKm).coerceAtLeast(0.0)
     // Une action ne peut ni sauter une étape ni franchir plusieurs seuils de rencontre.
     val increment = minOf(km, (stageEnd - old).coerceAtLeast(0.0), beforeEncounter)
     if (increment <= 0.00000001) return s
     val newDistance = (old + increment).coerceAtMost(s.destinationKm)
     val newTotal = s.totalTravelKm + if (s.retreatActive) 0.0 else increment
-    val newChecks = kotlin.math.floor((newTotal + 0.00000001) / 6.0).toInt()
+    val newChecks = kotlin.math.floor((newTotal + 0.00000001) / encounterSpacing).toInt()
     val encounterTriggered = !s.retreatActive && newChecks > oldChecks
     val encounter = if (encounterTriggered) generateEncounter(s.equippedWeapon, s.equippedSupport, s.character, s.bardJourney) else s.lastEncounter
     val logs = if (encounter != null && encounterTriggered) listOf(
@@ -1816,12 +1988,12 @@ private fun saveState(context: Context, state: AppState) {
         put("unlockedClasses", JSONArray(c.unlockedClasses)); put("completedAchievements", JSONArray(c.completedAchievements))
     }
     val obj = JSONObject().apply {
-        put("schema", 23); put("character", character); put("distance", state.distance)
+        put("schema", 24); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("totalTravelKm", state.totalTravelKm)
         put("encounters", state.encounters); put("retreatActive", state.retreatActive); put("retreatOrigin", state.retreatOrigin)
         put("routeStops", JSONArray(state.routeStops)); put("routeLegKm", JSONArray(state.routeLegKm)); put("routeLegIndex", state.routeLegIndex)
-        put("visitedPlaces", JSONArray(state.visitedPlaces)); put("completedChapters", JSONArray(state.completedChapters)); put("manualChapterAccess", JSONArray(state.manualChapterAccess))
+        put("visitedPlaces", JSONArray(state.visitedPlaces)); put("completedChapters", JSONArray(state.completedChapters)); put("manualChapterAccess", JSONArray(state.manualChapterAccess)); put("manualCompanions", JSONArray(state.manualCompanions)); put("dismissedCompanions", JSONArray(state.dismissedCompanions)); put("fairyTeleportUsed", state.fairyTeleportUsed); put("claimedChapterLoot", JSONArray(state.claimedChapterLoot))
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
         put("equippedWeapon", state.equippedWeapon); put("equippedSupport", state.equippedSupport); put("meditationActive", state.meditationActive)
         put("vigorActive", state.vigorActive); put("quantumMode", state.quantumMode); put("illusionActive", state.illusionActive)
@@ -1833,7 +2005,7 @@ private fun saveState(context: Context, state: AppState) {
             put("roll", e.roll); put("remainingHp", e.remainingHp); put("effect", e.effect); put("safe", e.safe)
             put("contextDie", e.contextDie); put("contextBonus", e.contextBonus); put("contextWeapon", e.contextWeapon)
             put("initialQuantity", e.initialQuantity); put("illusionDie", e.illusionDie); put("hunterUsed", e.hunterUsed); put("mysticUsed", e.mysticUsed); put("mysticDescription", e.mysticDescription)
-            put("enemyHp", JSONArray(encounterHp(e))); put("typeDice", JSONArray(e.typeDice)); put("quantityDie", e.quantityDie)
+            put("enemyHp", JSONArray(encounterHp(e))); put("typeDice", JSONArray(e.typeDice)); put("quantityDie", e.quantityDie); put("bulkerUsed", e.bulkerUsed)
         }) }
     }
     context.getSharedPreferences("dof_save", Context.MODE_PRIVATE).edit()
@@ -1893,7 +2065,7 @@ private fun loadState(context: Context): AppState {
                 it.optJSONArray("enemyHp")?.let { arr -> (0 until arr.length()).map { i -> arr.optInt(i) } } ?: emptyList(),
                 it.optBoolean("hunterUsed", false), it.optBoolean("mysticUsed", false), it.optString("mysticDescription", ""),
                 it.optJSONArray("typeDice")?.let { arr -> (0 until arr.length()).map { i -> arr.optInt(i) } } ?: emptyList(),
-                it.optInt("quantityDie", 0))
+                it.optInt("quantityDie", 0), it.optBoolean("bulkerUsed", false))
         }
         val baseState = AppState()
         baseState.copy(character = if (c.profileType == "advanced" && c.className in classAchievements) c.copy(unlockedClasses = (c.unlockedClasses + c.className).distinct()) else c,
@@ -1908,6 +2080,10 @@ private fun loadState(context: Context): AppState {
             routeLegIndex = obj.optInt("routeLegIndex", 0),
             visitedPlaces = strings("visitedPlaces", emptyList()),
             completedChapters = strings("completedChapters", emptyList()).filter { title -> storyChapters.any { it.title == title } },
+            manualCompanions = strings("manualCompanions", emptyList()).filter { name -> storyCompanions.any { it.name == name } },
+            dismissedCompanions = strings("dismissedCompanions", emptyList()).filter { name -> storyCompanions.any { it.name == name } },
+            fairyTeleportUsed = obj.optBoolean("fairyTeleportUsed", false),
+            claimedChapterLoot = strings("claimedChapterLoot", emptyList()).filter { title -> storyChapters.any { it.title == title } },
             manualChapterAccess = strings("manualChapterAccess", emptyList()).filter { title -> storyChapters.any { it.title == title && it.restricted } },
             equippedWeapon = obj.optString("equippedWeapon", ""), equippedSupport = obj.optString("equippedSupport", ""), meditationActive = obj.optBoolean("meditationActive", false),
             vigorActive = obj.optBoolean("vigorActive", false), quantumMode = obj.optString("quantumMode", ""), illusionActive = obj.optBoolean("illusionActive", false),
@@ -1983,7 +2159,7 @@ private fun useMysticDie(state: AppState, kind: String, dieIndex: Int, delta: In
     val e = state.lastEncounter ?: return state
     val cls = state.character.className
     if (state.character.profileType != "advanced" || cls !in listOf("Mage", "Moine") ||
-        e.mysticUsed || e.hunterUsed || state.illusionActive ||
+        e.mysticUsed || e.hunterUsed || e.bulkerUsed || state.illusionActive ||
         encounterHp(e).any { it != e.hp } ||
         delta !in (if (cls == "Mage") listOf(-1, 1) else listOf(-2, -1, 1, 2))) return state
     val before = when (kind) {

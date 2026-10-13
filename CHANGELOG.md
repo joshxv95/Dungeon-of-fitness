@@ -1,3 +1,12 @@
+## 1.25.0 — Compagnons, conséquences et butin des chapitres
+- Nouveau carnet des 8 compagnons cités explicitement dans la campagne (livre p. 73, 75, 76, 93, 113, 117, 119, 129), accessible depuis Aventure.
+- Recrutement calculé à partir des chapitres que le joueur a confirmé terminés, avec confirmation manuelle pour les sauvegardes anciennes et retrait manuel en cas d'événement narratif. Les compagnons disparaissent du registre si leur chapitre est dévalidé (sauf recrutement manuel indépendant).
+- Nouveaux accès automatiques d'après les chapitres : Nosferathon → Salle secrète de l’Oasis ; Tombe d’Arno → Île des poids guidés (une fois l'épreuve chantée validée) ; Falaises Olympiques → Antre de Mollefesse ; Temple de la prophétie → Exploration du Temple de Tasmina ; Ruines du Golem → Falaises Olympiques. Les trois accès de la v1.24 restent disponibles.
+- Pouvoirs de compagnons : Bulker Fruité peut neutraliser un adversaire avant attaque lors d'une rencontre de voyage (butin recalculé) ; La Fée peut téléporter une unique fois dans toute la campagne vers une zone accessible (confirmation irréversible) ; Le Troll Conteur double la fréquence des rencontres (seuil tous les 3 km plutôt que 6).
+- Attribution à usage unique des trois objets explicitement indiqués après le Temple de la prophétie (Shaker vigueur, Shaker quantique, Shaker sombre), via une confirmation du joueur dans le carnet, sans création de nouveaux PO. L'effet du Shaker sombre reste à appliquer selon le livre.
+- Capacités de l'Oracle de Tasmina, du Barde compagnon et du Paladin/Quêteur consultables dans le carnet mais pas encore automatisées ; pas de cumul de raccourcis inventé.
+- Journal enrichi, champs de sauvegarde additifs (schema 24), compatibilité v1.24 et signature APK conservées. versionCode 128.
+
 ## 1.24.0 — Carnet des chapitres et suivi des accès
 - Carnet de **36 chapitres principaux** de la campagne, avec titre et page selon le sommaire du livre (p. 218-219) : 24 en accès libre, 12 en accès restreint.
 - Entrée depuis l'onglet Aventure, filtres « Sur place », « Tous », « Accès restreint », « Terminés », et progression visuelle.
