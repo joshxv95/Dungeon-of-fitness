@@ -82,7 +82,7 @@ class StepTrackingService : Service(), SensorEventListener {
         private const val TEST_NOTIFICATION_ID = 2602
 
         /** Permet de vérifier le canal prioritaire sans marcher ni modifier la sauvegarde. */
-        fun sendTestNotification(context: Context): Boolean {
+        fun sendTestNotification(context: Context, kind: String = "encounter"): Boolean {
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.createNotificationChannel(NotificationChannel(EVENT_CHANNEL_ID, "Événements d’aventure",
                 NotificationManager.IMPORTANCE_HIGH).apply {
@@ -96,13 +96,15 @@ class StepTrackingService : Service(), SensorEventListener {
                     .putExtra(MainActivity.EXTRA_OPEN_ADVENTURE, true)
                     .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val samplePlace = if (kind == "waypoint") "Mont Stepper" else "Nosferathon"
+            val (title, detail) = stepEventMessage(kind, samplePlace)
+            val testDetail = "$detail · SIMULATION : aucun pas, trajet ou combat modifié."
             return try {
                 nm.notify(TEST_NOTIFICATION_ID, Notification.Builder(context, EVENT_CHANNEL_ID)
                     .setSmallIcon(android.R.drawable.ic_dialog_info)
-                    .setContentTitle("🔔 Notification de test")
-                    .setContentText("Aventure prête ! Test uniquement : aucun pas, trajet ou combat modifié.")
-                    .setStyle(Notification.BigTextStyle().bigText(
-                        "Aventure prête ! Test uniquement : aucun pas, trajet ou combat modifié."))
+                    .setContentTitle("TEST · $title")
+                    .setContentText(testDetail)
+                    .setStyle(Notification.BigTextStyle().bigText(testDetail))
                     .setAutoCancel(true).setContentIntent(open).build())
                 true
             } catch (_: SecurityException) { false }

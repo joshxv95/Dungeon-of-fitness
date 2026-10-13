@@ -454,6 +454,12 @@ fun DungeonApp(adventureNavigationToken: Int = 0) {
                                         update(after.copy(inventory = removeOne(after.inventory, name),
                                             log = (listOf("Shaker poison : $poisonDamage dégâts à distance sur ${e.name} n°${target + 1} (maximum 700, sans transfert aux autres ennemis).") + after.log).take(100)))
                                     }
+                                    "Shaker sombre" -> {
+                                        // Livre p. 173 : 700 dégâts à distance, cible un groupe.
+                                        // Convention explicite : 700 sur chaque ennemi vivant de la rencontre.
+                                        val after = useDarkShaker(state)
+                                        if (after != state) update(after)
+                                    }
                                     "Shaker vigueur" -> if (!state.vigorActive)
                                         update(state.copy(vigorActive = true, inventory = removeOne(state.inventory, name),
                                             log = (listOf("Shaker vigueur : dégâts ×2 jusqu’à la fin du combat.") + state.log).take(100)))
@@ -1049,6 +1055,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
     var fairyExpanded by remember { mutableStateOf(false) }
     var fairyTarget by remember { mutableStateOf("") }
     var fairyConfirm by remember { mutableStateOf(false) }
+    var darkShakerConfirm by remember(state.lastEncounter?.roll, state.lastEncounter?.contextDie) { mutableStateOf(false) }
     var teleportTarget by remember(state.character.location) { mutableStateOf(mapNeighbors(state.character.location).firstOrNull()?.first.orEmpty()) }
     var scoutChosen by remember { mutableStateOf(false) }
     var bardAudacious by remember { mutableStateOf(false) }
@@ -1077,6 +1084,17 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
             text = { Text("Téléportation vers $fairyTarget : une seule fois pendant TOUTE la campagne. Cette action est irréversible et ne valide aucun chapitre. Confirmer ?") },
             confirmButton = { TextButton(onClick = { onFairyTeleport(fairyTarget); fairyConfirm = false }) { Text("Téléporter une fois") } },
             dismissButton = { TextButton(onClick = { fairyConfirm = false }) { Text("Annuler") } })
+    }
+    if (darkShakerConfirm && state.lastEncounter != null && !state.lastEncounter.safe && "Shaker sombre" in state.inventory) {
+        val targets = encounterHp(state.lastEncounter)
+        val effect = groupSplashDamage(targets, 700)
+        AlertDialog(onDismissRequest = { darkShakerConfirm = false },
+            title = { Text("🧪 Utiliser le Shaker sombre ?") },
+            text = { Text("Objet unique du livre (p. 173), non achetable. " +
+                "Cette adaptation inflige 700 dégâts à distance à CHACUN des ${targets.count { it > 0 }} adversaires encore debout " +
+                "(${effect.damageDealt} PV effectifs au total). Le shaker sera définitivement consommé. Confirmer ?") },
+            confirmButton = { TextButton(onClick = { darkShakerConfirm = false; onUseConsumable("Shaker sombre", "") }) { Text("Consommer") } },
+            dismissButton = { TextButton(onClick = { darkShakerConfirm = false }) { Text("Annuler") } })
     }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("🗺️ Expédition", color = Color(0xFFEBC582), style = MaterialTheme.typography.headlineSmall) }
@@ -1456,6 +1474,16 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                             }
                         }
                     }
+                    if ("Shaker sombre" in state.inventory) {
+                        val group = groupSplashDamage(encounterHp(e), 700)
+                        Text("🧪 Shaker sombre (livre p. 173) : 700 dégâts à distance sur un groupe. " +
+                            "Convention de l'application : 700 dégâts sur chaque ennemi encore debout, " +
+                            "sans multiplication par le Guerrier, l’Oracle ni le Shaker vigueur. " +
+                            "Total effectif maintenant : ${group.damageDealt} PV.")
+                        OutlinedButton(onClick = { darkShakerConfirm = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Utiliser le Shaker sombre — confirmer")
+                        }
+                    }
                     if ("Shaker vigueur" in state.inventory && !state.vigorActive) {
                         Button(onClick = { onUseConsumable("Shaker vigueur", "") }, modifier = Modifier.fillMaxWidth()) { Text("Boire un Shaker vigueur — dégâts ×2") }
                     }
@@ -1812,6 +1840,8 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
 @Composable private fun ApplicationInfo(state: AppState, onResetDailyTests: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var notificationTestFeedback by remember { mutableStateOf("") }
+    var encounterPreview by remember { mutableStateOf<Encounter?>(null) }
+    var encounterPreviewInfo by remember { mutableStateOf("") }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("Application", style = MaterialTheme.typography.headlineSmall) }
         item { Text("Dungeon of Fitness · Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleLarge) }
@@ -1820,20 +1850,48 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         item { OutlinedButton(onClick = onResetDailyTests, modifier = Modifier.fillMaxWidth()) { Text("MODE TEST : remettre les utilisations du jour à zéro") } }
         item { Text("Ne supprime ni le personnage, ni les PO, ni l’inventaire, ni les kilomètres, ni le trajet ou le combat en cours. Le bonus Guerrier déjà activé pendant le combat reste actif.", style = MaterialTheme.typography.bodySmall) }
         item { Text("Mode test — notifications", style = MaterialTheme.typography.titleMedium) }
-        item { OutlinedButton(onClick = {
-            notificationTestFeedback = if (StepTrackingService.sendTestNotification(context))
-                "Notification de test envoyée. Vérifie les notifications du téléphone ; touche-la pour ouvrir Aventure."
-            else "Notification bloquée par Android : autorise les notifications et le canal Événements d’aventure dans les paramètres du téléphone."
-        }, modifier = Modifier.fillMaxWidth()) { Text("MODE TEST : envoyer une notification") } }
+        item { Text("Trois aperçus : les mêmes messages que les événements réels, " +
+            "sans modifier le trajet, le capteur, les kilomètres ou les combats.", style = MaterialTheme.typography.bodySmall) }
+        listOf("encounter" to "⚔️ Rencontre", "waypoint" to "🧭 Étape", "arrival" to "🏁 Arrivée").forEach { (kind, label) ->
+            item { OutlinedButton(onClick = {
+                notificationTestFeedback = if (StepTrackingService.sendTestNotification(context, kind))
+                    "Notification « $label » envoyée. Ouvre-la pour accéder à Aventure."
+                else "Notification bloquée par Android : vérifie l'autorisation et le canal Événements d’aventure."
+            }, modifier = Modifier.fillMaxWidth()) { Text("MODE TEST : $label") } }
+        }
         if (notificationTestFeedback.isNotBlank()) item { Text(notificationTestFeedback, style = MaterialTheme.typography.bodySmall) }
         item { Text("Ce test n'utilise pas le capteur et ne modifie ni les pas ni le trajet en cours.", style = MaterialTheme.typography.bodySmall) }
+        item { HorizontalDivider() }
+        item { Text("Mode test — aperçu d'une rencontre", style = MaterialTheme.typography.titleMedium) }
+        item { Text("Tirer une rencontre fictive (7D6, quantité, contexte), sans déplacement, combat, récompense ou sauvegarde. " +
+            "Cette simulation ne valide PAS l'arrêt réel au seuil des 6 km : celui-ci doit toujours être testé dehors.",
+            style = MaterialTheme.typography.bodySmall) }
+        item { OutlinedButton(onClick = {
+            encounterPreview = generateEncounter(state.equippedWeapon, state.equippedSupport,
+                state.character, state.bardJourney)
+            encounterPreviewInfo = if (encounterPreview == null)
+                "Jet ignoré : adversaire indisponible dans la zone Fitland, conformément au filtre actuel. Relance le test."
+            else "Résultat de test (aucune modification du jeu)."
+        }, modifier = Modifier.fillMaxWidth()) { Text("MODE TEST : tirer une rencontre fictive") } }
+        if (encounterPreviewInfo.isNotBlank()) item { Text(encounterPreviewInfo, style = MaterialTheme.typography.bodySmall) }
+        encounterPreview?.let { e ->
+            item { Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("⚔️ ${e.name} ×${e.quantity} · jet ${e.roll}", style = MaterialTheme.typography.titleMedium)
+                Text("7D6 : ${e.typeDice.joinToString(" + ")} · quantité : ${if (e.quantityDie == 0) "fixe" else e.quantityDie} · contexte : ${e.contextDie}")
+                Text("Contexte : ${e.context} · ${e.exercise}")
+                Text("PV totaux : ${e.remainingHp} · butin théorique : ${e.reward} PO")
+                val effect = groupSplashDamage(encounterHp(e), 700)
+                Text("Simulation Shaker sombre : ${effect.damageDealt} dégâts, ${effect.remainingHp.sum()} PV restants (aucun objet consommé).")
+            } } }
+        }
         item { Text("Fonctionnalités intégrées", style = MaterialTheme.typography.titleMedium) }
         listOf(
             "Navigation entre les écrans",
             "Planification manuelle d'un trajet sur la carte du livre",
             "Suivi des distances cumulées et validation d'arrivée",
             "Podomètre optionnel (1 pas = 1 m), sessions pause/reprise, seuil de rencontre et suivi écran verrouillé",
-            "Alertes distinctes de rencontre, étape et arrivée, avec ouverture directe d'Aventure",
+            "Alertes distinctes de rencontre, étape et arrivée, avec ouverture directe d'Aventure et tests indépendants",
+            "Shaker sombre : effet de groupe à 700 PV par ennemi (convention annoncée)",
             "Rencontres : table officielle Fitland (7D6), quantité, contexte et PV",
             "Arme active et bonus de contexte des gants de vétéran",
             "Historique des dés (7D6, quantité et contexte), et manipulation Mage/Moine",
@@ -1892,7 +1950,9 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         } }
         item { Text("Équipement possédé dans cette catégorie", style = MaterialTheme.typography.titleMedium) }
         if (bagTab == "Consommables" && "Shaker sombre" in state.inventory) item {
-            Text("📖 Shaker sombre : obtenu dans le Temple de la prophétie (p. 123). Son effet n'est pas encore automatisé : consulter le livre.",
+            Text("🧪 Shaker sombre (p. 173) : 700 dégâts à distance contre un groupe. " +
+                "Utilisable pendant un combat, avec confirmation ; objet rare non achetable. " +
+                "Convention : 700 PV sur chaque ennemi vivant.",
                 style = MaterialTheme.typography.bodySmall, color = Color(0xFFEBC582))
         }
         val owned = state.inventory.filter { name -> when(bagTab) {
@@ -2229,6 +2289,25 @@ private fun applyDamage(s: AppState, damage: Int, target: Int?): AppState = s.la
 
 private fun resolve(s: AppState, damage: Int): AppState = applyDamage(s, damage, null)
 private fun resolveTarget(s: AppState, damage: Int, index: Int): AppState = applyDamage(s, damage, index)
+
+/** Groupe entier : 700 PV par adversaire vivant. Convention explicitée dans l'UI. */
+private fun useDarkShaker(s: AppState): AppState {
+    val e = s.lastEncounter ?: return s
+    if (e.safe || "Shaker sombre" !in s.inventory) return s
+    val result = groupSplashDamage(encounterHp(e), 700)
+    if (result.damageDealt <= 0) return s
+    val remaining = result.remainingHp.sum()
+    val base = s.copy(inventory = removeOne(s.inventory, "Shaker sombre"))
+    val note = "Shaker sombre (livre p. 173 ; convention 700 PV par ennemi) : " +
+        "${result.damageDealt} dégâts à distance répartis sur ${result.hitCount} adversaire(s)."
+    return if (remaining > 0) base.copy(
+        lastEncounter = e.copy(remainingHp = remaining, enemyHp = result.remainingHp),
+        log = (listOf(note, "${e.name} : $remaining PV restants.") + s.log).take(100))
+    else base.copy(character = s.character.copy(po = s.character.po + e.reward), lastEncounter = null,
+        meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false,
+        warriorActive = false, oracleCombatActive = false,
+        log = (listOf(note, "${e.name} vaincu(s), butin : ${e.reward} PO") + s.log).take(100))
+}
 
 private fun removeOne(items: List<String>, name: String): List<String> {
     val index = items.indexOf(name)

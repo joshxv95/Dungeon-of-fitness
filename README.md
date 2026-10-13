@@ -4,7 +4,7 @@ Application de fitness-RPG **hors ligne**, en Kotlin / Jetpack Compose, adaptée
 
 ## Version et historique
 
-- Version actuelle : **2.0.0** (`versionCode` **200**).
+- Version actuelle : **2.2.0** (`versionCode` **202**).
 - Source de vérité : `app/build.gradle.kts`, champs `versionName` et `versionCode`.
 - L'écran **Application** affiche automatiquement `BuildConfig.VERSION_NAME`, sans numéro codé en dur.
 - Historique des changements : [CHANGELOG.md](CHANGELOG.md). Carte et 28 tronçons : [CARTE-TRONCONS.md](CARTE-TRONCONS.md). Aucun fichier `VERSION-X.X.txt` n'est nécessaire.
@@ -55,9 +55,9 @@ La configuration de compilation est dans `.github/workflows/build-apk.yml`. Un A
 ## Points non achevés ou conventions
 
 - Le Barde solo utilise une **règle maison** : jusqu'à deux trajets à demi-distance par jour, mode prudent ou mode audacieux (adversaires ×2 et récompense ×2,5 par rapport à la quantité initiale) pour les rencontres qui n'ont pas de quantité fixe.
-- Le Mage et le Moine modifient pour l'instant **le dé de contexte**, pas encore ceux de type/quantité.
+- Le Mage et le Moine peuvent modifier le type (un des sept dés), la quantité ou le contexte, avec une modification par rencontre comme convention d'interface.
 - Les combats spéciaux et effets immédiats de certains ennemis ne sont pas tous automatisés.
-- La carte et les trajets restent majoritairement renseignés manuellement ; les déplacements du Cavalier nécessitent une représentation exacte de l'adjacence des zones.
+- Les trajets guidés reposent sur 28 tronçons relevés de la carte p. 51 ; les liaisons non indiquées restent à saisir manuellement. Le Cavalier utilise les seules adjacences enregistrées.
 - Les caractéristiques ne reçoivent pas de nouveau système maison dans cette application : une éventuelle mécanique RPG plus avancée sera abordée dans un **autre projet** utilisant le moteur fitness.
 
 Consulter le livre pour les règles officielles. Les écarts doivent être indiqués comme conventions d'adaptation ou règles maison.
@@ -110,3 +110,9 @@ Consulter le livre pour les règles officielles. Les écarts doivent être indiq
 Pendant une session de podomètre, la notification permanente de marche reste discrète. Lorsque les pas atteignent **le prochain seuil de rencontre**, **une ville intermédiaire** ou **la destination**, le service arrête le comptage et publie une **nouvelle notification prioritaire** dans le canal Android « Événements d’aventure ». Cette notification décrit l'événement ; en la touchant, l'onglet **Aventure** s'ouvre pour résoudre la rencontre ou confirmer le passage/l'arrivée.
 
 La notification exige l'autorisation Android « Notifications » et peut être silencieuse/bloquée par les réglages du téléphone, le mode Ne pas déranger ou les restrictions système. Le fonctionnement du podomètre et le blocage au seuil ne dépendent **pas** de cette autorisation. Les pas supplémentaires après l'arrêt ne sont pas crédités. Voir `TESTS-V2.1.md`.
+
+### Nouveautés 2.2.0 — Shaker sombre et laboratoire
+
+- Le **Shaker sombre**, gagné au Temple de la prophétie et non vendu en boutique, est utilisable pendant un combat contre un groupe d'adversaires. L'effet de 700 dégâts à distance sur un groupe vient du livre p. 173. **Convention d'implémentation** : 700 dégâts indépendants sur chaque ennemi encore vivant. Une confirmation détaille les cibles et les dégâts avant consommation unique. Les PV/PO sont mis à jour et les bonus d'attaque ne multiplient pas les dégâts fixes du shaker.
+- Dans **Application → Mode test**, essayer les trois modèles de notification séparément et tirer une **rencontre fictive sans progresser de distance** ; aperçu de la quantité, des dés, des PV, du butin et des dégâts simulés du Shaker sombre. Aucune donnée de jeu ne change. Ce banc d'essai ne prouve pas l'arrêt physique du podomètre au seuil : le vérifier après une vraie marche.
+- Exécuter les tests sans SDK Android : `kotlinc app/src/main/java/com/dungeonoffitness/app/CombatConsumableRules.kt tests/CombatConsumableRulesTest.kt -include-runtime -d combat-tests.jar && java -jar combat-tests.jar`.
