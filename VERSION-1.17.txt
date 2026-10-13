@@ -1,1 +1,0 @@
-v1.17 : capacités Éclaireur (2 trajets à moitié par jour) et Guerrier (Prière, dégâts des armes x2 une rencontre par jour). Limites quotidiennes selon date locale. Cavalier non automatisé : adjacence cartographique à vérifier.
