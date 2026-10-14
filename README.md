@@ -4,19 +4,19 @@ Application de fitness-RPG **hors ligne**, en Kotlin / Jetpack Compose, adaptée
 
 ## Version et historique
 
-- Version actuelle : **2.3.0** (`versionCode` **203**).
+- Version actuelle : **2.4.0** (`versionCode` **204**).
 - Source de vérité : `app/build.gradle.kts`, champs `versionName` et `versionCode`.
 - L'écran **Application** affiche automatiquement `BuildConfig.VERSION_NAME`, sans numéro codé en dur.
 - Historique des changements : [CHANGELOG.md](CHANGELOG.md). Carte et 28 tronçons : [CARTE-TRONCONS.md](CARTE-TRONCONS.md). Aucun fichier `VERSION-X.X.txt` n'est nécessaire.
 
-## Nouveautés 2.3.0 — parchemins et Manuel d’agilité
+## Nouveautés 2.4.0 — armures et armurerie (p. 164–168)
 
-- Quatre **Parchemins comestibles**, tous à **100 PO** (livre p. 174), dans **Sac → Consommables** : Cardio (double le composant de dégâts des armes à durée), Force (double celui des attaques par exécution), Congestion (double le bonus d’amélioration, sans doubler le soutien), Flexibilité (+5 au contexte avant d’en résoudre les effets, plafonné à 6). Les trois premiers agissent pendant le combat en cours.
-- **Manuel d’agilité**, 1 000 PO, dans **Sac → Améliorations** : +2 permanent au contexte des nouvelles rencontres, p. 169. Il est passif, sans équipement à sélectionner.
-- Multiplicateurs sur les composantes correspondantes, calculs bornés pour éviter les débordements ; dégâts affichés avant de confirmer l’exercice. **Les bonus d’amélioration restent attribués une fois par attaque enregistrée**, conformément à la convention demandée. La saisie manuelle attend des dégâts finaux et ne multiplie pas une seconde fois les parchemins.
-- Utilisations inscrites dans le journal, état des trois parchemins de combat et usage du parchemin de flexibilité sauvegardés puis nettoyés après victoire, fuite ou évitement. Compatibilité avec les sauvegardes précédentes.
-- **Convention d’adaptation du contexte :** la table officielle s’arrête à 6 ; un résultat supérieur à 6 est ramené à 6. Le Parchemin de flexibilité s’utilise une fois par rencontre **avant les exercices immédiats et avant la première attaque**.
-- **Test du podomètre au seuil réel de 6 km : toujours à réaliser sur téléphone**, sa logique n’a pas été modifiée dans cette version.
+- **Trois armures** ajoutées dans **Sac → Armures**, avec emplacement indépendant de l'arme et du soutien (convention d'interface). Armure de force 300 PO : contexte +2 et +100 PV par série/exécution lorsque le lest de 10–20 kg est réellement porté et confirmé. Armure de leste 200 PO : contexte +1 et +50 PV dans les mêmes conditions avec 5–10 kg. Les bonus de contexte ne prennent effet que si l'armure était équipée AVANT le tirage.
+- **Armure respirante** 100 PO : en portant un sac à dos vide, un second dé de contexte peut être tiré **avant le combat** ; les deux résultats (bonus compris) sont affichés et le joueur conserve celui qu'il souhaite (livre p. 164). Une relance par rencontre, non disponible si l'armure n'était pas équipée à la génération. Le choix et les dés sont sauvegardés, sans retirer l'armure.
+- **Excalibrute** (500 PO, 1 000 PV/30 secondes, contexte +1) et **Fléau d'inertie** (200 PO, 100 PV/exécution, contexte +1) ajoutés au catalogue, avec leurs exercices officiels (p. 168).
+- **Epée de Tasmina** (500 PV/30 secondes, contexte +2) : objet **non achetable**, attribué une seule fois via le carnet de campagne après confirmation de l'**Exploration du Temple de Tasmina** (p. 126–127).
+- La signature debug, les sauvegardes locales, les pas, les rencontres et les notifications restent inchangés. Migration additive : schéma 28. Aucun fichier `TESTS-Vx.x.md` dans la livraison, seulement les tests Kotlin internes pour la régression.
+- **Podomètre validé en conditions réelles par l'utilisateur** sur la v2.3, y compris arrêts sur rencontre, étape et destination et notifications correspondantes. Ne pas modifier cette logique sans nécessité.
 
 ## Compilation de l'APK avec GitHub Actions
 
@@ -48,7 +48,7 @@ La configuration de compilation est dans `.github/workflows/build-apk.yml`. Un A
 - Sauvegarde en deux parties : `dof_steps_v2` pour les mesures de capteur ; `dof_save` pour l'aventure et les pas déjà appliqués. L'identifiant de session et le curseur de pas évitent de créditer les mêmes pas après rotation/relance. Réinitialiser le personnage efface les deux.
 - Après une interruption du service par le système, le comptage peut manquer des pas ; **il ne faut pas considérer les données comme un podomètre médical**. L'app reste utilisable en saisie manuelle.
 - Tests algorithmiques reproductibles : `kotlinc app/src/main/java/com/dungeonoffitness/app/StepLogic.kt tests/StepLogicTest.kt -include-runtime -d step-tests.jar && java -jar step-tests.jar`.
-- Voir [TESTS-V2.0.md](TESTS-V2.0.md) pour le test sur téléphone, notamment avec l'écran verrouillé.
+- L’utilisateur a validé le comptage et l’arrêt automatique sur rencontre, étape et arrivée avec notifications, en conditions réelles (v2.3).
 
 ## Fonctionnalités majeures
 
@@ -118,7 +118,7 @@ Consulter le livre pour les règles officielles. Les écarts doivent être indiq
 
 Pendant une session de podomètre, la notification permanente de marche reste discrète. Lorsque les pas atteignent **le prochain seuil de rencontre**, **une ville intermédiaire** ou **la destination**, le service arrête le comptage et publie une **nouvelle notification prioritaire** dans le canal Android « Événements d’aventure ». Cette notification décrit l'événement ; en la touchant, l'onglet **Aventure** s'ouvre pour résoudre la rencontre ou confirmer le passage/l'arrivée.
 
-La notification exige l'autorisation Android « Notifications » et peut être silencieuse/bloquée par les réglages du téléphone, le mode Ne pas déranger ou les restrictions système. Le fonctionnement du podomètre et le blocage au seuil ne dépendent **pas** de cette autorisation. Les pas supplémentaires après l'arrêt ne sont pas crédités. Voir `TESTS-V2.1.md`.
+La notification exige l'autorisation Android « Notifications » et peut être silencieuse/bloquée par les réglages du téléphone, le mode Ne pas déranger ou les restrictions système. Le fonctionnement du podomètre et le blocage au seuil ne dépendent **pas** de cette autorisation. Les pas supplémentaires après l'arrêt ne sont pas crédités.
 
 ### Nouveautés 2.2.0 — Shaker sombre et laboratoire
 

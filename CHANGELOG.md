@@ -1,3 +1,11 @@
+## 2.4.0 — Armures officielles, armes manquantes et Epée de Tasmina
+- Nouveau rayon **Armures** : force (300 PO, +100 PV/exécution/série confirmée, contexte +2), leste (200 PO, +50 PV/exécution/série confirmée, contexte +1), respirante (100 PO, relance du dé de contexte et choix du résultat) ; livre p. 164. Les armures sont distinctes des armes et soutiens (convention d'interface). Les gains de dégâts exigent une confirmation de port du lest à chaque attaque ; le contexte est figé à la génération.
+- Armure respirante : une seule relance possible, choisie par le joueur avant les attaques. Les deux jets et le choix sont conservés dans la sauvegarde ; impossible d'obtenir la relance en changeant d'armure après l'apparition de la rencontre.
+- Excalibrute (500 PO, 1000 PV/30 sec., contexte +1) et Fléau d'inertie (200 PO, 100 PV/exécution, contexte +1) ajoutés au catalogue avec les exercices du livre p. 168.
+- Epée de Tasmina : arme rare non vendable (500 PV/30 sec., contexte +2), à réclamer une fois après le chapitre « Exploration du Temple de Tasmina » (p. 126–127), comme indiqué dans le récit.
+- Schéma 28 : nouveaux champs équipés et de relance, chargement rétrocompatible. Pas de changements au podomètre, aux notifications, aux trajets, aux pouvoirs de classes/compagnons ou aux consommables. `versionCode` 204, version `2.4.0`, signature inchangée. Suppression des fichiers de protocole `TESTS-V*.md` ; tests Kotlin internes maintenus.
+- Vérifications locales : tests purs des règles d'armure et des moteurs de pas, compagnons, consommables et parchemins ; compilation APK toujours à confirmer sur GitHub Actions.
+
 ## 2.3.0 — Les Parchemins comestibles (p. 174) et le Manuel d’agilité (p. 169)
 - Quatre consommables officiels vendus 100 PO dans Sac → Consommables. **Cardio** : composante de dégâts des attaques à durée ×2 ; **Force** : composante de dégâts des attaques par exécution ×2 ; **Congestion** : composante du bonus des améliorations ×2 (les soutiens ne sont pas des améliorations) ; **Flexibilité** : contexte +5 avant attaque, avec plafond de 6 issu de la convention de l'application. Les effets sont affichés avant les attaques.
 - Manuel d’agilité vendu 1 000 PO dans Sac → Améliorations : +2 permanent au jet de contexte lors de la génération d'une nouvelle rencontre, avec effet visible au jet et dans le laboratoire.
