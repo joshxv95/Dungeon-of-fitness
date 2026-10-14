@@ -4,10 +4,19 @@ Application de fitness-RPG **hors ligne**, en Kotlin / Jetpack Compose, adaptée
 
 ## Version et historique
 
-- Version actuelle : **2.2.0** (`versionCode` **202**).
+- Version actuelle : **2.3.0** (`versionCode` **203**).
 - Source de vérité : `app/build.gradle.kts`, champs `versionName` et `versionCode`.
 - L'écran **Application** affiche automatiquement `BuildConfig.VERSION_NAME`, sans numéro codé en dur.
 - Historique des changements : [CHANGELOG.md](CHANGELOG.md). Carte et 28 tronçons : [CARTE-TRONCONS.md](CARTE-TRONCONS.md). Aucun fichier `VERSION-X.X.txt` n'est nécessaire.
+
+## Nouveautés 2.3.0 — parchemins et Manuel d’agilité
+
+- Quatre **Parchemins comestibles**, tous à **100 PO** (livre p. 174), dans **Sac → Consommables** : Cardio (double le composant de dégâts des armes à durée), Force (double celui des attaques par exécution), Congestion (double le bonus d’amélioration, sans doubler le soutien), Flexibilité (+5 au contexte avant d’en résoudre les effets, plafonné à 6). Les trois premiers agissent pendant le combat en cours.
+- **Manuel d’agilité**, 1 000 PO, dans **Sac → Améliorations** : +2 permanent au contexte des nouvelles rencontres, p. 169. Il est passif, sans équipement à sélectionner.
+- Multiplicateurs sur les composantes correspondantes, calculs bornés pour éviter les débordements ; dégâts affichés avant de confirmer l’exercice. **Les bonus d’amélioration restent attribués une fois par attaque enregistrée**, conformément à la convention demandée. La saisie manuelle attend des dégâts finaux et ne multiplie pas une seconde fois les parchemins.
+- Utilisations inscrites dans le journal, état des trois parchemins de combat et usage du parchemin de flexibilité sauvegardés puis nettoyés après victoire, fuite ou évitement. Compatibilité avec les sauvegardes précédentes.
+- **Convention d’adaptation du contexte :** la table officielle s’arrête à 6 ; un résultat supérieur à 6 est ramené à 6. Le Parchemin de flexibilité s’utilise une fois par rencontre **avant les exercices immédiats et avant la première attaque**.
+- **Test du podomètre au seuil réel de 6 km : toujours à réaliser sur téléphone**, sa logique n’a pas été modifiée dans cette version.
 
 ## Compilation de l'APK avec GitHub Actions
 
