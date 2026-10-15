@@ -16,6 +16,9 @@ internal object MageSpellRules {
     /** Chaque tranche complète de 200 PO consacrée au bijou ajoute +1 au contexte (p. 164). */
     fun jewelBonus(spent: Int): Int = spent.coerceAtLeast(0) / 200
 
+    /** Libellé dynamique dans le sac ; l’identifiant persistant de l’objet reste « Bijou de mage ». */
+    fun jewelLabel(spent: Int): String = "Bijou de mage niv.${jewelBonus(spent)}"
+
     /** La table de contexte officielle est numérotée de 1 à 6. */
     fun contextAfterCardio(die: Int, bonus: Int): Int = (die + bonus + 1).coerceIn(1, 6)
 

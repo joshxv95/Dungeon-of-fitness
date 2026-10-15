@@ -1,3 +1,18 @@
+## 2.6.0 — Améliorations en groupe et rencontres à conséquences (p. 43, 171)
+- **Récits héroïques** (1 000 PO) : double les dégâts d’attaque en présence de deux combattants alliés contre un seul adversaire encore debout ; confirmation manuelle à chaque attaque.
+- **Réplique de couronne** (1 000 PO) : double les dégâts d’attaque si un autre joueur réel combat aux côtés du personnage ; confirmation manuelle par attaque. Aucun allié fictif ou compagnon automatique ne vaut confirmation d’un autre joueur.
+- Convention affichée : lorsque plusieurs multiplicateurs valides s’appliquent, leur produit est utilisé, avec saturation pour éviter le dépassement d’entier. Dégâts des consommables fixes inchangés.
+- **Chevalier templiométrique** : choix facultatif d’une escorte sans rencontres jusqu’à la destination du voyage ; distance et étapes continuent normalement, podomètre et boutons compatibles, sauvegarde persistante et effet désactivé à l’arrivée ou téléportation.
+- **Bulker Fruité** : choix et attribution d’un shaker lors de la rencontre pacifique, une seule fois, sans PO.
+- **Gardes du Fitland** : option de payer tous ses PO avant le combat avec confirmation irréversible, sans récompense ; combat normal conservé comme alternative.
+- Les autres rencontres spéciales restent partiellement manuelles. Même clé de signature debug, `applicationId` et sauvegardes compatibles v2.5.1 (schéma 30). VersionCode 207.
+- Aucun fichier `TESTS-Vx.x.md` ajouté.
+
+## 2.5.1 — Niveau du Bijou de mage dans le Sac
+- Affichage dynamique « Bijou de mage niv.N » dans la liste des objets possédés et l’encart d’investissement : niveau calculé à partir des PO investis, avec 200 PO par niveau.
+- Le nom stocké de l’objet reste « Bijou de mage » : aucune migration ou perte des sauvegardes, aucun changement au bonus de contexte ni aux prix.
+- VersionCode 206, versionName 2.5.1 ; tous les autres systèmes inchangés. Aucun fichier de protocole TESTS-Vx.x.md.
+
 ## 2.5.0 — Sorts du Mage et Bijou de mage
 - Ajout des quatre sorts conventionnels du livre (p. 176) avec exercices confirmés, prérequis d'Agilité, sélection des cibles et persistance des effets : Boule de force, Onde de cardio, Flèche acido-basique, Second souffle quantique.
 - Déplacement et podomètre inchangés ; Second souffle place la session de pas en pause sans perdre les kilomètres ni le combat. La reprise des pas est distincte du retour à l'aventure.

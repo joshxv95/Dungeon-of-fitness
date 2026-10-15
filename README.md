@@ -4,10 +4,19 @@ Application de fitness-RPG **hors ligne**, en Kotlin / Jetpack Compose, adaptée
 
 ## Version et historique
 
-- Version actuelle : **2.5.0** (`versionCode` **205**).
+- Version actuelle : **2.6.0** (`versionCode` **207**).
 - Source de vérité : `app/build.gradle.kts`, champs `versionName` et `versionCode`.
 - L'écran **Application** affiche automatiquement `BuildConfig.VERSION_NAME`, sans numéro codé en dur.
 - Historique des changements : [CHANGELOG.md](CHANGELOG.md). Carte et 28 tronçons : [CARTE-TRONCONS.md](CARTE-TRONCONS.md). Aucun fichier `VERSION-X.X.txt` n'est nécessaire.
+
+## Nouveautés 2.6.0 — améliorations et rencontres spéciales (p. 43 et 171)
+- **Récits héroïques** et **Réplique de couronne** (1 000 PO chacun) : multiplicateurs conditionnels de dégâts ; le nombre d'adversaires est vérifié et la présence d'un allié ou d'un autre joueur est confirmée à chaque attaque, jamais déduite automatiquement. Le cumul de multiplicateurs est une convention d'adaptation signalée.
+- **Chevalier templiométrique** : escorte facultative sans nouvelles rencontres jusqu'à l'arrivée à destination, sans supprimer les kilomètres réellement parcourus ni les étapes intermédiaires. Le podomètre reste fonctionnel ; la protection est sauvegardée, puis supprimée à l'arrivée.
+- **Bulker Fruité** : donne un shaker choisi lors de la rencontre pacifique, sans PO. **Gardes du Fitland** : payer tous ses PO ou combattre ; confirmation explicite avant tout paiement.
+- Format de sauvegarde rétrocompatible (schéma 30), même identifiant et clé de signature. Aucun fichier `TESTS-Vx.x.md`.
+
+## Nouveautés 2.5.1
+- Le sac indique désormais **Bijou de mage niv.1**, **niv.2**, etc., en fonction des tranches de 200 PO investies. Les bonus et la sauvegarde sont inchangés.
 
 ## Nouveautés 2.5.0 — magie conventionnelle et Bijou de mage (p. 164, 176–177)
 
