@@ -1,3 +1,10 @@
+## 2.5.0 — Sorts du Mage et Bijou de mage
+- Ajout des quatre sorts conventionnels du livre (p. 176) avec exercices confirmés, prérequis d'Agilité, sélection des cibles et persistance des effets : Boule de force, Onde de cardio, Flèche acido-basique, Second souffle quantique.
+- Déplacement et podomètre inchangés ; Second souffle place la session de pas en pause sans perdre les kilomètres ni le combat. La reprise des pas est distincte du retour à l'aventure.
+- Ajout du Bijou de mage (p. 164), amélioration progressive par paliers de 200 PO, +1 contexte par tranche de 200 PO investie. Convention : un même bijou peut recevoir plusieurs versements.
+- Les attaques touchant une cible marquée bénéficient d'un bonus de +50 PV non transférable, ajouté une seule fois par cible et par attaque enregistrée. Les Shakers à dégâts fixes ne sont pas concernés (convention d'interface).
+- Schéma de sauvegarde 29 et versionCode 205 ; signature APK inchangée. Tests de logique des sorts et non-régression ; APK non compilé localement. Aucun fichier `TESTS-Vx.x.md` ajouté.
+
 ## 2.4.0 — Armures officielles, armes manquantes et Epée de Tasmina
 - Nouveau rayon **Armures** : force (300 PO, +100 PV/exécution/série confirmée, contexte +2), leste (200 PO, +50 PV/exécution/série confirmée, contexte +1), respirante (100 PO, relance du dé de contexte et choix du résultat) ; livre p. 164. Les armures sont distinctes des armes et soutiens (convention d'interface). Les gains de dégâts exigent une confirmation de port du lest à chaque attaque ; le contexte est figé à la génération.
 - Armure respirante : une seule relance possible, choisie par le joueur avant les attaques. Les deux jets et le choix sont conservés dans la sauvegarde ; impossible d'obtenir la relance en changeant d'armure après l'apparition de la rencontre.

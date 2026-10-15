@@ -4,10 +4,21 @@ Application de fitness-RPG **hors ligne**, en Kotlin / Jetpack Compose, adaptée
 
 ## Version et historique
 
-- Version actuelle : **2.4.0** (`versionCode` **204**).
+- Version actuelle : **2.5.0** (`versionCode` **205**).
 - Source de vérité : `app/build.gradle.kts`, champs `versionName` et `versionCode`.
 - L'écran **Application** affiche automatiquement `BuildConfig.VERSION_NAME`, sans numéro codé en dur.
 - Historique des changements : [CHANGELOG.md](CHANGELOG.md). Carte et 28 tronçons : [CARTE-TRONCONS.md](CARTE-TRONCONS.md). Aucun fichier `VERSION-X.X.txt` n'est nécessaire.
+
+## Nouveautés 2.5.0 — magie conventionnelle et Bijou de mage (p. 164, 176–177)
+
+- **Quatre sorts de Mage** dans Aventure (p. 176), sans achat : **Boule de force** (Agilité 5, FORCE tracé avec le corps, 50 PV à distance sur un adversaire) ; **Onde de cardio** (Agilité 5, CARDIO tracé, +1 au jet de contexte avant attaque) ; **Flèche acido-basique** (Agilité 7, ACIDOBASIQUE tracé, cible marquée pour +50 PV sur chacune des attaques suivantes qui la touchent) ; **Second souffle quantique** (Agilité 2, SECONDSOUFFLE tracé, pause/reprise de la partie et mise en pause du podomètre s'il compte des pas).
+- Interface : choix de la cible vivante, confirmation du rituel à chaque lancer, seuils de caractéristiques explicités. Les sorts n'appliquent jamais une récompense par eux-mêmes : seule une victoire contre les monstres conserve ses PO habituels.
+- La **Flèche acido-basique** ajoute 50 PV une seule fois pour chaque cible déjà marquée atteinte par une attaque déclarée, pas par répétition. Elle n'augmente pas les dégâts fixes d'un Shaker poison ou sombre. Bonus sans transfert sur une autre cible ; convention d'adaptation dans le cas d'une attaque traversant plusieurs ennemis.
+- **Bijou de mage** (p. 164) : achat de 200 PO, puis investissement facultatif de 200 PO supplémentaires ; +1 de contexte par tranche de 200 PO dépensée pour ce bijou, appliqué lors des futurs jets. La forme « investissement progressif sur le même bijou » est une convention d'interface, fidèle au barème du livre. Bonus non rétroactif sur une rencontre déjà générée.
+- La table officielle de contexte 1–6 reste plafonnée à 6, comme les autres bonus de l'app ; ceci est une convention préexistante. Le livre n'indique pas de limite par combat pour les sorts, ils sont relançables avec un nouvel exercice confirmé.
+- **Second souffle quantique** est une commande de pause/reprise, sans inventer de dégâts ni de guérison. Le suivi podomètre en cours est mis en pause (il faut le reprendre séparément depuis le panneau de marche lors du retour).
+- Champs de sauvegarde ajoutés de manière rétrocompatible, schéma 29 : PO investis, repos magique, cibles marquées et utilisations de CARDIO pendant la rencontre. La signature et les capacités de classes, les seuils du podomètre et les notifications n'ont pas changé.
+- Pas de fichiers `TESTS-Vx.x.md` dans le dépôt. Tests de logique Kotlin : `MageSpellRules.kt` et `tests/MageSpellRulesTest.kt`. Compilation APK toujours à confirmer via GitHub Actions.
 
 ## Nouveautés 2.4.0 — armures et armurerie (p. 164–168)
 

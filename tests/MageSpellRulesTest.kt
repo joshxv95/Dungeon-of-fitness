@@ -1,0 +1,37 @@
+package com.dungeonoffitness.app
+
+fun main() {
+    var checks = 0
+    fun check(value: Boolean) { require(value); checks++ }
+    check(MageSpellRules.mayCast("force", "Mage", 5))
+    check(!MageSpellRules.mayCast("force", "Mage", 4))
+    check(!MageSpellRules.mayCast("force", "Moine", 10))
+    check(MageSpellRules.mayCast("acid", "Mage", 7))
+    check(!MageSpellRules.mayCast("acid", "Mage", 6))
+    check(MageSpellRules.mayCast("rest", "Mage", 2))
+    check(MageSpellRules.mayCast("force", "Mage", 0, novice = true, adaptation = 8))
+    check(!MageSpellRules.mayCast("acid", "Mage", 0, novice = true, adaptation = 9))
+    check(MageSpellRules.jewelBonus(0) == 0)
+    check(MageSpellRules.jewelBonus(199) == 0)
+    check(MageSpellRules.jewelBonus(200) == 1)
+    check(MageSpellRules.jewelBonus(600) == 3)
+    check(MageSpellRules.contextAfterCardio(4, 1) == 6)
+    check(MageSpellRules.contextAfterCardio(6, 2) == 6)
+    val one = MageSpellRules.applyAttack(listOf(300, 300), 100, 0, listOf(0))
+    check(one.remaining == listOf(150, 300))
+    check(one.inflicted == 150)
+    val melee = MageSpellRules.applyAttack(listOf(100, 100, 100), 150, null, listOf(0, 1, 2))
+    check(melee.remaining == listOf(0, 0, 100))
+    check(melee.inflicted == 200)
+    val normal = MageSpellRules.applyAttack(listOf(100,100), 150, null, emptyList())
+    check(normal.remaining == listOf(0, 50))
+    val noSplash = MageSpellRules.applyAttack(listOf(75,100), 250, 0, listOf(0))
+    check(noSplash.remaining == listOf(0,100))
+    check(noSplash.inflicted == 75)
+    val untouched = MageSpellRules.applyAttack(listOf(100,100), 100, 0, listOf(1))
+    check(untouched.remaining == listOf(0,100))
+    check(untouched.markedHitCount == 0)
+    val zero = MageSpellRules.applyAttack(listOf(100), 0, null, listOf(0))
+    check(zero.inflicted == 0)
+    println("MageSpellRules : $checks assertions OK")
+}

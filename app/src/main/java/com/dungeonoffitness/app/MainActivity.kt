@@ -101,6 +101,7 @@ private fun itemSymbol(name: String): String = when {
     name.contains("Épée", true) || name.contains("Epée", true) || name.contains("Sabre", true) || name.contains("Couteaux", true) -> "⚔️"
     name.contains("Haltère", true) || name.contains("Masse", true) -> "🏋️"
     name.contains("Lance", true) || name.contains("Hallebarde", true) || name.contains("Perche", true) -> "🔱"
+    name.contains("Bijou", true) -> "💎"
     name.contains("Manuel", true) -> "📜"
     name.contains("Pattes", true) -> "🐾"
     name.contains("Tapis", true) -> "🧘"
@@ -239,7 +240,8 @@ private fun attackDamage(weapon: Weapon, count: Int, inventory: List<String>, pa
 private data class Encounter(val name: String, val quantity: Int, val hp: Int, val reward: Int, val context: String, val exercise: String, val roll: Int = 0, val remainingHp: Int = hp * quantity, val effect: String = "", val safe: Boolean = false, val contextDie: Int = 0, val contextBonus: Int = 0, val contextWeapon: String = "", val initialQuantity: Int = quantity, val illusionDie: Int = 0, val enemyHp: List<Int> = emptyList(), val hunterUsed: Boolean = false, val mysticUsed: Boolean = false, val mysticDescription: String = "", val typeDice: List<Int> = emptyList(), val quantityDie: Int = 0, val bulkerUsed: Boolean = false,
     val flexibilityScrollUsed: Boolean = false,
     val armorSecondDie: Int = 0, val armorRerollUsed: Boolean = false,
-    val contextArmor: String = "")
+    val contextArmor: String = "",
+    val acidTargets: List<Int> = emptyList(), val mageCardioCasts: Int = 0)
 
 private data class AppState(
     val character: Character = Character(),
@@ -254,6 +256,7 @@ private data class AppState(
     val equippedWeapon: String = "",
     val equippedSupport: String = "",
     val equippedArmor: String = "",
+    val mageJewelSpent: Int = 0, val mageResting: Boolean = false,
     val meditationActive: Boolean = false,
     val cardioScrollActive: Boolean = false,
     val forceScrollActive: Boolean = false,
@@ -429,20 +432,28 @@ fun DungeonApp(adventureNavigationToken: Int = 0) {
                     "adventure" -> Adventure(state,
                         onOpenChapters = { tab = "chapters" },
                         onOpenCompanions = { tab = "companions" },
-                        onTravel = { km -> if (!stepBusy) update(travel(state, km)) },
+                        onTravel = { km -> if (!stepBusy && !state.mageResting) update(travel(state, km)) },
                         stepSnapshot = stepSnapshot,
                         stepNotice = stepNotice,
                         stepBusy = stepBusy,
                         stepSensorAvailable = StepSessionStore.hasSensor(context),
-                        onStartSteps = { requestStepStart() },
+                        onStartSteps = { if (!state.mageResting) requestStepStart() },
                         onPauseSteps = { StepTrackingService.dispatch(context, StepTrackingService.ACTION_PAUSE) },
                         onResumeSteps = { StepTrackingService.dispatch(context, StepTrackingService.ACTION_RESUME) },
                         onStopSteps = { StepTrackingService.dispatch(context, StepTrackingService.ACTION_STOP) },
                         onWarrior = { update(activateWarrior(state)) },
-                        onResolve = { damage -> update(resolve(state, warriorDamage(state, damage))) },
+                        onResolve = { damage -> if (!state.mageResting) update(resolve(state, warriorDamage(state, damage), attack = true)) },
+                        onMageSpell = { spell, target ->
+                            if (spell == "rest" && !state.mageResting &&
+                                StepSessionStore.read(context).status in listOf("starting", "running")) {
+                                StepTrackingService.dispatch(context, StepTrackingService.ACTION_PAUSE)
+                            }
+                            val updated = castMageSpell(state, spell, target)
+                            if (updated != state) update(updated)
+                        },
                         onWeaponAttack = { name, count, pattesUsed, target, supportConfirmed, armorConfirmed ->
                             val weapon = weapons.firstOrNull { it.name == name }
-                            if (weapon != null && name in state.inventory && count > 0)
+                            if (!state.mageResting && weapon != null && name in state.inventory && count > 0)
                                 {
                                     val support = supports.firstOrNull { it.name == state.equippedSupport && it.name in state.inventory }
                                     val armor = armors.firstOrNull { it.name == state.equippedArmor && it.name in state.inventory }
@@ -454,14 +465,15 @@ fun DungeonApp(adventureNavigationToken: Int = 0) {
                                     if (weapon.ranged && e != null) {
                                         val hp = encounterHp(e)
                                         if (target != null && target in hp.indices && hp[target] > 0) {
-                                            val after = resolveTarget(state, damage, target)
-                                            update(after.copy(log = (listOf("${weapon.name} : cible ${e.name} n°${target + 1}, ${minOf(damage, hp[target])} PV infligés (sans transfert).") + after.log).take(100)))
+                                            val after = resolveTarget(state, damage, target, attack = true)
+                                            val actual = hp[target] - (after.lastEncounter?.let { encounterHp(it).getOrNull(target) } ?: 0)
+                                            update(after.copy(log = (listOf("${weapon.name} : cible ${e.name} n°${target + 1}, $actual PV infligés (bonus acido-basique éventuel inclus, sans transfert).") + after.log).take(100)))
                                         }
-                                    } else if (!weapon.ranged) update(resolve(state, damage))
+                                    } else if (!weapon.ranged) update(resolve(state, damage, attack = true))
                                 }
                         },
-                        onSkip = { update(skipEncounter(state)) },
-                        onFlee = { towardDestination -> update(fleeEncounter(state, towardDestination)) },
+                        onSkip = { if (!state.mageResting) update(skipEncounter(state)) },
+                        onFlee = { towardDestination -> if (!state.mageResting) update(fleeEncounter(state, towardDestination)) },
                         onHunt = { update(useHunterAbility(state)) },
                         onBulker = { update(useBulkerCompanion(state)) },
                         onOracleCombat = { update(activateOracleCombat(state)) },
@@ -485,7 +497,7 @@ fun DungeonApp(adventureNavigationToken: Int = 0) {
                         },
                         onUseConsumable = { name, mode ->
                             val e = state.lastEncounter
-                            if (e != null && !e.safe && name in state.inventory) {
+                            if (!state.mageResting && e != null && !e.safe && name in state.inventory) {
                                 when (name) {
                                     "Shaker poison" -> {
                                         val current = encounterHp(e)
@@ -544,11 +556,11 @@ fun DungeonApp(adventureNavigationToken: Int = 0) {
                             }
                         },
                         onPlan = { destination, km, scout, bardAudacious, followMap, bardMusic, oraclePrayer, paladinPrayer ->
-                            update(planJourney(state, destination, km, scout, bardAudacious, followMap, bardMusic, oraclePrayer, paladinPrayer))
+                            if (!state.mageResting) update(planJourney(state, destination, km, scout, bardAudacious, followMap, bardMusic, oraclePrayer, paladinPrayer))
                         },
-                        onCheckpoint = { update(confirmRouteCheckpoint(state)) },
+                        onCheckpoint = { if (!state.mageResting) update(confirmRouteCheckpoint(state)) },
                         onArrive = {
-                            if (state.lastEncounter == null && state.destinationKm > 0.0 && state.distance + 0.00001 >= state.destinationKm) {
+                            if (!state.mageResting && state.lastEncounter == null && state.destinationKm > 0.0 && state.distance + 0.00001 >= state.destinationKm) {
                                 update(state.copy(character = state.character.copy(location = state.destination),
                                     visitedPlaces = (state.visitedPlaces + state.character.location + state.destination).distinct(),
                                     destination = "", destinationKm = 0.0, distance = 0.0, bardJourney = false, retreatActive = false, retreatOrigin = "",
@@ -579,7 +591,16 @@ fun DungeonApp(adventureNavigationToken: Int = 0) {
                                 distance = if (firstRegistration) 0.0 else state.distance))
                         }
                     }, onReset = { resetDialog = true })
-                    "inventory" -> Inventory(state, onArmorBuy = { armor ->
+                    "inventory" -> Inventory(state, onInvestMageJewel = {
+                        if (state.character.po >= 200 && state.mageJewelSpent <= Int.MAX_VALUE - 200) {
+                            val first = "Bijou de mage" !in state.inventory
+                            update(state.copy(character = state.character.copy(po = state.character.po - 200),
+                                mageJewelSpent = state.mageJewelSpent + 200,
+                                inventory = if (first) state.inventory + "Bijou de mage" else state.inventory,
+                                log = (listOf("💎 Bijou de mage (p. 164) : 200 PO investis, " +
+                                    "bonus de contexte +${MageSpellRules.jewelBonus(state.mageJewelSpent + 200)} pour les futures rencontres.") + state.log).take(100)))
+                        }
+                    }, onArmorBuy = { armor ->
                         if (state.character.po >= armor.price && armor.name !in state.inventory)
                             update(state.copy(character = state.character.copy(po = state.character.po - armor.price),
                                 inventory = state.inventory + armor.name,
@@ -1096,6 +1117,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
     onStopSteps: () -> Unit,
     onWarrior: () -> Unit,
     onResolve: (Int) -> Unit,
+    onMageSpell: (String, Int) -> Unit,
     onWeaponAttack: (String, Int, Boolean, Int?, Boolean, Boolean) -> Unit,
     onSkip: () -> Unit,
     onFlee: (Boolean) -> Unit,
@@ -1138,6 +1160,8 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
     var selectedTypeDie by remember(state.lastEncounter?.roll, state.lastEncounter?.name) { mutableIntStateOf(0) }
     var monkPrayerConfirmed by remember(state.lastEncounter?.roll, state.lastEncounter?.contextDie) { mutableStateOf(false) }
     var damageInput by remember { mutableStateOf("") }
+    var mageExerciseDone by remember(state.lastEncounter?.roll, state.lastEncounter?.contextDie) { mutableStateOf(false) }
+    var mageTarget by remember(state.lastEncounter?.roll, state.lastEncounter?.name) { mutableIntStateOf(0) }
     var selectedWeapon by remember { mutableStateOf("") }
     var rangedTarget by remember { mutableIntStateOf(-1) }
     var attackCount by remember { mutableStateOf("1") }
@@ -1353,7 +1377,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                 }
             }
             item { Button(enabled = (distanceInput.replace(',','.').toDoubleOrNull()?.let { it.isFinite() && it > 0.0 } == true) &&
-                selectedPlace != state.character.location && !pending,
+                selectedPlace != state.character.location && !pending && !state.mageResting,
                 onClick = {
                     onPlan(selectedPlace, distanceInput.replace(',','.').toDouble(), scoutChosen, scoutChosen && bardAudacious, followMap,
                         companionMusic, oraclePrayerJourney, paladinPrayerJourney)
@@ -1403,7 +1427,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                     }
                 }
             }
-            val canContinue = !pending && !stepBusy && state.distance + 0.00001 < state.destinationKm && !hasPendingWaypoint(state)
+            val canContinue = !pending && !stepBusy && !state.mageResting && state.distance + 0.00001 < state.destinationKm && !hasPendingWaypoint(state)
             if (novice) {
                 item { Button(enabled = canContinue,
                     onClick = { onTravel(1.0) }, modifier = Modifier.fillMaxWidth()) { Text("+ 1 minute d'endurance") } }
@@ -1415,13 +1439,47 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                 item { OutlinedButton(enabled = canContinue,
                     onClick = { onTravel(0.1) }, modifier = Modifier.fillMaxWidth()) { Text("+ 100 m") } }
             }
-            if (state.distance + 0.00001 >= state.destinationKm && !pending && !hasPendingWaypoint(state)) {
+            if (state.distance + 0.00001 >= state.destinationKm && !pending && !state.mageResting && !hasPendingWaypoint(state)) {
                 item { Button(onClick = onArrive, modifier = Modifier.fillMaxWidth()) { Text("Valider l'arrivée à ${state.destination}") } }
             }
         }
         item { Text("Progression totale : ${"%.3f".format(state.totalTravelKm)} $unit · Rencontres déclenchées : ${state.encounters}") }
         item { Text("Une rencontre est déclenchée tous les ${if ("Le Troll Conteur" in availableCompanions(state)) 3 else 6} ${unit} cumulés${if ("Le Troll Conteur" in availableCompanions(state)) " (Troll Conteur)" else ""}. Les adversaires et contextes proviennent de la table officielle (p. 42-43). Certains effets spéciaux restent manuels.", style = MaterialTheme.typography.bodySmall) }
-        state.lastEncounter?.let { e ->
+        if (state.mageResting && (state.character.className != "Mage" || state.character.profileType != "advanced")) item {
+            Button(onClick = { onMageSpell("resume", -1) }, modifier = Modifier.fillMaxWidth()) {
+                Text("⏯ Reprendre la partie mise en pause par le sort")
+            }
+        }
+        if (state.character.className == "Mage" && state.character.profileType == "advanced") {
+            item { Card(border = BorderStroke(1.dp, Color(0xFF97784A))) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text("🔮 Magie conventionnelle — Second souffle quantique (p. 176)", style = MaterialTheme.typography.titleMedium)
+                    if (MageSpellRules.mayCast("rest", state.character.className, state.character.agility)) {
+                        Text("Agilité 2 requise. Dessinez SECONDSOUFFLE avec votre corps. Ce sort permet de suspendre votre partie et de la reprendre plus tard, sans autre bonus.")
+                        if (state.mageResting) {
+                            Text("⏸ Pause magique enregistrée. Votre trajet et votre combat sont conservés.")
+                            Button(onClick = { onMageSpell("resume", -1) }, modifier = Modifier.fillMaxWidth()) { Text("Reprendre la partie") }
+                        } else {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = mageExerciseDone, onCheckedChange = { mageExerciseDone = it })
+                                Text("J'ai écrit SECONDSOUFFLE avec mon corps")
+                            }
+                            OutlinedButton(enabled = mageExerciseDone, onClick = {
+                                onMageSpell("rest", -1); mageExerciseDone = false
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Suspendre la partie (sauvegarde et pause du podomètre)") }
+                        }
+                    } else Text("Nécessite Agilité 2.")
+                }
+            } }
+        }
+        if (state.mageResting) item {
+            Card(border = BorderStroke(1.dp, Color(0xFF97784A))) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("⏸ Partie suspendue par Second souffle quantique", style = MaterialTheme.typography.titleMedium)
+                    Text("Combat et déplacements conservés. Reprends la partie dans la carte du sort ci-dessus avant de poursuivre.")
+                }
+            }
+        } else state.lastEncounter?.let { e ->
             item { HorizontalDivider() }
             item { Text("⚔️ RENCONTRE — TABLE DU LIVRE", color = Color(0xFFEBC582), style = MaterialTheme.typography.headlineSmall) }
             item { Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1438,6 +1496,50 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                 Text("Adversaires : ${encounterHp(e).count { it > 0 }} encore debout sur ${e.quantity}")
                 encounterHp(e).forEachIndexed { index, hpLeft ->
                     HealthGauge("${if (hpLeft == 0) "💀" else "👹"} ${e.name} n°${index + 1}", hpLeft, e.hp)
+                }
+                if (state.character.className == "Mage" && state.character.profileType == "advanced" && !e.safe && !state.mageResting) {
+                    HorizontalDivider()
+                    Text("🔮 SORTS DU MAGE — p. 176", style = MaterialTheme.typography.titleMedium, color = Color(0xFFEBC582))
+                    Text("Dessine les lettres du sort avec ton corps avant chaque lancement. Les sorts ne nécessitent pas d'achat.", style = MaterialTheme.typography.bodySmall)
+                    val livingTargets = encounterHp(e).indices.filter { encounterHp(e)[it] > 0 }
+                    if (livingTargets.isNotEmpty()) {
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            livingTargets.forEach { idx ->
+                                OutlinedButton(onClick = { mageTarget = idx }) {
+                                    Text("${if (mageTarget == idx) "●" else "○"} ${e.name} n°${idx+1}")
+                                }
+                            }
+                        }
+                        Text("Cible choisie : ${e.name} n°${mageTarget + 1}")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = mageExerciseDone, onCheckedChange = { mageExerciseDone = it })
+                        Text("J'ai écrit le mot du sort choisi avec mon corps")
+                    }
+                    if (MageSpellRules.mayCast("force", state.character.className, state.character.agility)) {
+                        OutlinedButton(enabled = mageExerciseDone && mageTarget in livingTargets,
+                            onClick = { onMageSpell("force", mageTarget); mageExerciseDone = false },
+                            modifier = Modifier.fillMaxWidth()) {
+                            Text("FORCE — Boule de force : 50 PV à distance sur la cible")
+                        }
+                        val cardioPossible = e.contextDie in 1..6 && e.armorSecondDie == 0 &&
+                            encounterHp(e).all { it == e.hp } && !e.flexibilityScrollUsed
+                        OutlinedButton(enabled = mageExerciseDone && cardioPossible,
+                            onClick = { onMageSpell("cardio", -1); mageExerciseDone = false },
+                            modifier = Modifier.fillMaxWidth()) {
+                            Text("CARDIO — Onde de cardio : contexte +1 (avant attaque)")
+                        }
+                        if (e.mageCardioCasts > 0) Text("Onde de cardio utilisée ${e.mageCardioCasts} fois pendant cette rencontre.", style = MaterialTheme.typography.bodySmall)
+                        if (!cardioPossible) Text("Onde de cardio : utilisable avant toute attaque, hors relance d'armure en attente.", style = MaterialTheme.typography.bodySmall)
+                    } else Text("Boule de force et Onde de cardio : Agilité 5 requise.")
+                    if (MageSpellRules.mayCast("acid", state.character.className, state.character.agility)) {
+                        if (e.acidTargets.isNotEmpty()) Text("Cibles acido-basiques : ${e.acidTargets.joinToString { "n°${it + 1}" }} (+50 PV sur chaque attaque qui les atteint).")
+                        OutlinedButton(enabled = mageExerciseDone && mageTarget in livingTargets && mageTarget !in e.acidTargets,
+                            onClick = { onMageSpell("acid", mageTarget); mageExerciseDone = false },
+                            modifier = Modifier.fillMaxWidth()) {
+                            Text("ACIDOBASIQUE — Marquer la cible (+50 PV/attaque reçue)")
+                        }
+                    } else Text("Flèche acido-basique : Agilité 7 requise.")
                 }
                 if (e.contextDie > 0) {
                     Text("Dé de contexte : ${e.contextDie} + ${e.contextBonus} = ${(e.contextDie + e.contextBonus).coerceAtMost(6)}")
@@ -2005,7 +2107,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             style = MaterialTheme.typography.bodySmall) }
         item { OutlinedButton(onClick = {
             encounterPreview = generateEncounter(state.equippedWeapon, state.equippedSupport,
-                state.character, state.bardJourney, state.inventory, state.equippedArmor)
+                state.character, state.bardJourney, state.inventory, state.equippedArmor, state.mageJewelSpent)
             encounterPreviewInfo = if (encounterPreview == null)
                 "Jet ignoré : adversaire indisponible dans la zone Fitland, conformément au filtre actuel. Relance le test."
             else "Résultat de test (aucune modification du jeu)."
@@ -2065,7 +2167,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
     }
 }
 
-@Composable private fun Inventory(state: AppState, onEquip: (String) -> Unit, onBuy: (Weapon) -> Unit, onUpgradeBuy: (CombatUpgrade) -> Unit, onSupportBuy: (Support) -> Unit, onEquipSupport: (String) -> Unit, onArmorBuy: (Armor) -> Unit, onEquipArmor: (String) -> Unit, onConsumableBuy: (String) -> Unit, onTestGold: (Int) -> Unit) {
+@Composable private fun Inventory(state: AppState, onInvestMageJewel: () -> Unit, onEquip: (String) -> Unit, onBuy: (Weapon) -> Unit, onUpgradeBuy: (CombatUpgrade) -> Unit, onSupportBuy: (Support) -> Unit, onEquipSupport: (String) -> Unit, onArmorBuy: (Armor) -> Unit, onEquipArmor: (String) -> Unit, onConsumableBuy: (String) -> Unit, onTestGold: (Int) -> Unit) {
     var bagTab by remember { mutableStateOf("Armes") }
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Text("🎒 Sac et armurerie", color = Color(0xFFEBC582), style = MaterialTheme.typography.headlineSmall) }
@@ -2096,7 +2198,7 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
             "Armes" -> weapons.any { it.name == name }
             "Armures" -> armors.any { it.name == name }
             "Soutien" -> supports.any { it.name == name }
-            "Améliorations" -> combatUpgrades.any { it.name == name }
+            "Améliorations" -> combatUpgrades.any { it.name == name } || name == "Bijou de mage"
             else -> name.startsWith("Shaker ") || name.startsWith("Parchemin comestible")
         } }
         if (owned.isEmpty()) item { Text("Aucun objet dans cette catégorie.") }
@@ -2158,6 +2260,15 @@ private fun advancedProfile(c: Character, strength: String, hours: String, dista
         }
         }
         if (bagTab == "Améliorations") {
+        item { Card(border = BorderStroke(1.dp, Color(0xFF97784A))) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("💎 Bijou de mage — livre p. 164", style = MaterialTheme.typography.titleMedium)
+                Text("+1 au contexte pour chaque tranche de 200 PO investis dans le bijou. Achat initial 200 PO ; les investissements suivants augmentent sa valeur. Pas de bonus rétroactif pendant une rencontre.")
+                Text("Somme investie : ${state.mageJewelSpent} PO · Contexte +${if ("Bijou de mage" in state.inventory) MageSpellRules.jewelBonus(state.mageJewelSpent) else 0}")
+                Button(enabled = state.character.po >= 200 && state.mageJewelSpent <= Int.MAX_VALUE - 200,
+                    onClick = onInvestMageJewel) { Text(if ("Bijou de mage" in state.inventory) "Investir 200 PO de plus" else "Acheter le bijou (200 PO)") }
+            }
+        } }
         item { Text("Améliorations de combat", style = MaterialTheme.typography.titleMedium) }
         item { Text("Bonus fixes appliqués une fois par attaque, et non à chaque répétition. Les Pattes d’ours nécessitent de confirmer le comptage oral.", style = MaterialTheme.typography.bodySmall) }
         items(combatUpgrades) { u ->
@@ -2287,7 +2398,7 @@ private fun nextStepBoundary(s: AppState): Double? {
                 if (status == "error" && current && session.error.isNotBlank())
                     Text(session.error, color = MaterialTheme.colorScheme.error)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (!busy && nextStepBoundary(state) != null) {
+                    if (!busy && !state.mageResting && nextStepBoundary(state) != null) {
                         Button(onClick = start) { Text("▶ Démarrer") }
                     }
                     if (status == "starting" || status == "running") {
@@ -2332,7 +2443,7 @@ private fun travel(s: AppState, km: Double, viaSteps: Boolean = false): AppState
     val newTotal = s.totalTravelKm + if (s.retreatActive) 0.0 else increment
     val newChecks = kotlin.math.floor((newTotal + 0.00000001) / encounterSpacing).toInt()
     val encounterTriggered = !s.retreatActive && newChecks > oldChecks
-    val encounter = if (encounterTriggered) generateEncounter(s.equippedWeapon, s.equippedSupport, s.character, s.bardJourney, s.inventory, s.equippedArmor) else s.lastEncounter
+    val encounter = if (encounterTriggered) generateEncounter(s.equippedWeapon, s.equippedSupport, s.character, s.bardJourney, s.inventory, s.equippedArmor, s.mageJewelSpent) else s.lastEncounter
     val logs = if (encounter != null && encounterTriggered) listOf(
         "Rencontre : ${encounter.name} ×${encounter.quantity}" + if (s.bardJourney) {
             if (encounter.effect.contains("quantité fixe", ignoreCase = true)) " — Barde audacieux : quantité fixe, pas de bonus."
@@ -2388,7 +2499,7 @@ private val encounterRules = listOf(
     EncounterRule("Orienteur obsédé", 0, 400, "Toutes", "Poursuite lors des rencontres suivantes ; quantité fixe : 1")
 )
 
-private fun generateEncounter(equippedWeapon: String, equippedSupport: String, character: Character, bardJourney: Boolean = false, inventory: List<String> = emptyList(), equippedArmor: String = ""): Encounter? {
+private fun generateEncounter(equippedWeapon: String, equippedSupport: String, character: Character, bardJourney: Boolean = false, inventory: List<String> = emptyList(), equippedArmor: String = "", mageJewelSpent: Int = 0): Encounter? {
     val typeDice = List(7) { Random.nextInt(1, 7) }
     val roll = typeDice.sum()
     val rule = encounterRules[roll - 7]
@@ -2406,13 +2517,14 @@ private fun generateEncounter(equippedWeapon: String, equippedSupport: String, c
     val armorBonus = armors.firstOrNull { it.name == equippedArmor && it.name in inventory }?.context ?: 0
     val acrobatBonus = if (character.profileType == "advanced" && character.className == "Acrobate") 2 else 0
     val agilityBonus = ScrollCombatRules.agilityBonus(inventory)
-    val contextBonus = equipmentBonus + supportBonus + armorBonus + (if (roll == 15) 2 else 0) + acrobatBonus + agilityBonus
+    val jewelBonus = if ("Bijou de mage" in inventory) MageSpellRules.jewelBonus(mageJewelSpent) else 0
+    val contextBonus = equipmentBonus + supportBonus + armorBonus + (if (roll == 15) 2 else 0) + acrobatBonus + agilityBonus + jewelBonus
     // La table p. 42 s'arrête à 6 : les dépassements sont traités comme 6.
     val contextRoll = (contextDie + contextBonus).coerceAtMost(6)
     val contexts = listOf("Vous êtes piégé !", "Une embuscade !", "Ils arrivent !", "Ils ne vous échapperont pas.", "Ils sont à votre merci.", "Ils n'ont rien vu.")
     val effects = listOf("10 burpees par adversaire", "Durée d'utilisation des objets ×2", "50 jumping jacks", "20 jumping jacks", "Aucun exercice", "Rencontre évitable")
     val safe = rule.effect.startsWith("Inoffensif")
-    return Encounter(rule.name, quantity, rule.hp, reward, contexts[contextRoll - 1], effects[contextRoll - 1], roll, rule.hp * quantity, rule.effect, safe, contextDie, contextBonus, listOfNotNull(if (equipmentBonus > 0) equippedWeapon else null, if (supportBonus > 0) equippedSupport else null, if (armorBonus > 0) equippedArmor else null, if (acrobatBonus > 0) "Acrobate +2" else null, if (agilityBonus > 0) "Manuel d’agilité +2" else null).joinToString(" + "), enemyHp = List(quantity) { rule.hp }, typeDice = typeDice, quantityDie = quantityDie, contextArmor = if (equippedArmor in inventory) equippedArmor else "")
+    return Encounter(rule.name, quantity, rule.hp, reward, contexts[contextRoll - 1], effects[contextRoll - 1], roll, rule.hp * quantity, rule.effect, safe, contextDie, contextBonus, listOfNotNull(if (equipmentBonus > 0) equippedWeapon else null, if (supportBonus > 0) equippedSupport else null, if (armorBonus > 0) equippedArmor else null, if (acrobatBonus > 0) "Acrobate +2" else null, if (agilityBonus > 0) "Manuel d’agilité +2" else null, if (jewelBonus > 0) "Bijou de mage +$jewelBonus" else null).joinToString(" + "), enemyHp = List(quantity) { rule.hp }, typeDice = typeDice, quantityDie = quantityDie, contextArmor = if (equippedArmor in inventory) equippedArmor else "")
 }
 
 // Les anciennes sauvegardes n'avaient qu'une réserve commune : reconstruction déterministe.
@@ -2449,34 +2561,59 @@ private fun encounterHp(e: Encounter): List<Int> {
     }
 }
 
-private fun applyDamage(s: AppState, damage: Int, target: Int?): AppState = s.lastEncounter?.let { e ->
-    val hp = encounterHp(e).toMutableList()
-    var pending = damage.coerceAtLeast(0)
-    if (target != null) {
-        if (target !in hp.indices || hp[target] <= 0) return@let s
-        val dealt = minOf(pending, hp[target])
-        hp[target] -= dealt
-        pending = dealt
-    } else {
-        // Compatibilité avec le combat existant : dégâts répartis, sans perte entre cibles.
-        for (i in hp.indices) {
-            val dealt = minOf(pending, hp[i])
-            hp[i] -= dealt
-            pending -= dealt
-            if (pending == 0) break
-        }
-    }
-    val remaining = hp.sum()
-    val dealt = if (target == null) damage.coerceAtLeast(0) - pending else pending
-    if (remaining > 0) s.copy(lastEncounter = e.copy(remainingHp = remaining, enemyHp = hp),
-        log = (listOf("${e.name} : $dealt dégâts, $remaining PV restants (${hp.count { it > 0 }} debout)") + s.log).take(100))
+private fun applyDamage(s: AppState, damage: Int, target: Int?, attack: Boolean = false): AppState = s.lastEncounter?.let { e ->
+    val before = encounterHp(e)
+    val outcome = MageSpellRules.applyAttack(before, damage, target, if (attack) e.acidTargets else emptyList())
+    if (outcome.inflicted == 0) return@let s
+    val remaining = outcome.remaining.sum()
+    val markNote = if (outcome.markedHitCount > 0) " · Flèche acido-basique : +50 PV sur ${outcome.markedHitCount} cible(s) touchée(s)." else ""
+    if (remaining > 0) s.copy(lastEncounter = e.copy(remainingHp = remaining, enemyHp = outcome.remaining),
+        log = (listOf("${e.name} : ${outcome.inflicted} dégâts, $remaining PV restants (${outcome.remaining.count { it > 0 }} debout)$markNote") + s.log).take(100))
     else s.copy(character = s.character.copy(po = s.character.po + e.reward), lastEncounter = null,
         meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, warriorActive = false, oracleCombatActive = false, cardioScrollActive = false, forceScrollActive = false, congestionScrollActive = false,
-        log = (listOf("${e.name} vaincu(s), butin : ${e.reward} PO") + s.log).take(100))
+        log = (listOf("${e.name} vaincu(s), butin : ${e.reward} PO$markNote") + s.log).take(100))
 } ?: s
 
-private fun resolve(s: AppState, damage: Int): AppState = applyDamage(s, damage, null)
-private fun resolveTarget(s: AppState, damage: Int, index: Int): AppState = applyDamage(s, damage, index)
+private fun resolve(s: AppState, damage: Int, attack: Boolean = false): AppState = applyDamage(s, damage, null, attack)
+private fun resolveTarget(s: AppState, damage: Int, index: Int, attack: Boolean = false): AppState = applyDamage(s, damage, index, attack)
+
+/** Les quatre sorts conventionnels (p. 176) ne coûtent pas de PO.
+ * Chaque lancer exige la confirmation du mot écrit avec le corps dans l'interface.
+ */
+private fun castMageSpell(s: AppState, spell: String, target: Int): AppState {
+    if (spell == "resume") return if (s.mageResting) s.copy(mageResting = false,
+        log = (listOf("Second souffle quantique : partie reprise au point sauvegardé.") + s.log).take(100)) else s
+    if (s.mageResting || !MageSpellRules.mayCast(spell, s.character.className, s.character.agility,
+            s.character.profileType == "novice", s.character.adaptation)) return s
+    if (spell == "rest") return s.copy(mageResting = true,
+        log = (listOf("Second souffle quantique (p. 176) : rituel SECONDSOUFFLE confirmé ; pause de la partie et du podomètre.") + s.log).take(100))
+    val e = s.lastEncounter ?: return s
+    if (e.safe || target < -1) return s
+    return when (spell) {
+        "force" -> {
+            if (target !in encounterHp(e).indices || encounterHp(e)[target] <= 0) s
+            else {
+                val after = resolveTarget(s, warriorDamage(s, 50), target, attack = true)
+                after.copy(log = (listOf("Boule de force (p. 176) : FORCE tracé ; 50 PV à distance de base sur ${e.name} n°${target + 1}.") + after.log).take(100))
+            }
+        }
+        "acid" -> if (target !in encounterHp(e).indices || encounterHp(e)[target] <= 0 || target in e.acidTargets) s
+            else s.copy(lastEncounter = e.copy(acidTargets = e.acidTargets + target),
+                log = (listOf("Flèche acido-basique (p. 176) : ACIDOBASIQUE tracé, ${e.name} n°${target + 1} marqué (+50 PV par attaque qui le touche).") + s.log).take(100))
+        "cardio" -> {
+            if (e.contextDie !in 1..6 || e.armorSecondDie != 0 || e.flexibilityScrollUsed || encounterHp(e).any { it != e.hp }) s
+            else {
+                val idx = MageSpellRules.contextAfterCardio(e.contextDie, e.contextBonus) - 1
+                val contexts = listOf("Vous êtes piégé !", "Une embuscade !", "Ils arrivent !", "Ils ne vous échapperont pas.", "Ils sont à votre merci.", "Ils n'ont rien vu.")
+                val effects = listOf("10 burpees par adversaire", "Durée d'utilisation des objets ×2", "50 jumping jacks", "20 jumping jacks", "Aucun exercice", "Rencontre évitable")
+                val updated = e.copy(contextBonus = e.contextBonus + 1, context = contexts[idx], exercise = effects[idx],
+                    mageCardioCasts = e.mageCardioCasts + 1, contextWeapon = listOf(e.contextWeapon, "Onde de cardio +1").filter { it.isNotBlank() }.joinToString(" + "))
+                s.copy(lastEncounter = updated, log = (listOf("Onde de cardio (p. 176) : CARDIO tracé, contexte +1, nouveau résultat ${idx + 1}.") + s.log).take(100))
+            }
+        }
+        else -> s
+    }
+}
 
 /** Groupe entier : 700 PV par adversaire vivant. Convention explicitée dans l'UI. */
 private fun useDarkShaker(s: AppState): AppState {
@@ -2555,7 +2692,7 @@ private fun saveState(context: Context, state: AppState) {
         put("unlockedClasses", JSONArray(c.unlockedClasses)); put("completedAchievements", JSONArray(c.completedAchievements))
     }
     val obj = JSONObject().apply {
-        put("schema", 28); put("character", character); put("distance", state.distance)
+        put("schema", 29); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("totalTravelKm", state.totalTravelKm)
         put("encounters", state.encounters); put("retreatActive", state.retreatActive); put("retreatOrigin", state.retreatOrigin)
@@ -2567,7 +2704,7 @@ private fun saveState(context: Context, state: AppState) {
         put("stepSessionId", state.stepSessionId); put("stepAppliedSteps", state.stepAppliedSteps)
         put("stepLastClosedId", state.stepLastClosedId)
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
-        put("equippedWeapon", state.equippedWeapon); put("equippedSupport", state.equippedSupport); put("equippedArmor", state.equippedArmor); put("meditationActive", state.meditationActive)
+        put("equippedWeapon", state.equippedWeapon); put("equippedSupport", state.equippedSupport); put("equippedArmor", state.equippedArmor); put("mageJewelSpent", state.mageJewelSpent); put("mageResting", state.mageResting); put("meditationActive", state.meditationActive)
         put("vigorActive", state.vigorActive); put("quantumMode", state.quantumMode); put("illusionActive", state.illusionActive)
         put("cardioScrollActive", state.cardioScrollActive); put("forceScrollActive", state.forceScrollActive)
         put("congestionScrollActive", state.congestionScrollActive)
@@ -2579,7 +2716,7 @@ private fun saveState(context: Context, state: AppState) {
             put("roll", e.roll); put("remainingHp", e.remainingHp); put("effect", e.effect); put("safe", e.safe)
             put("contextDie", e.contextDie); put("contextBonus", e.contextBonus); put("contextWeapon", e.contextWeapon)
             put("initialQuantity", e.initialQuantity); put("illusionDie", e.illusionDie); put("hunterUsed", e.hunterUsed); put("mysticUsed", e.mysticUsed); put("mysticDescription", e.mysticDescription)
-            put("enemyHp", JSONArray(encounterHp(e))); put("typeDice", JSONArray(e.typeDice)); put("quantityDie", e.quantityDie); put("bulkerUsed", e.bulkerUsed); put("flexibilityScrollUsed", e.flexibilityScrollUsed); put("armorSecondDie", e.armorSecondDie); put("armorRerollUsed", e.armorRerollUsed); put("contextArmor", e.contextArmor)
+            put("enemyHp", JSONArray(encounterHp(e))); put("typeDice", JSONArray(e.typeDice)); put("quantityDie", e.quantityDie); put("bulkerUsed", e.bulkerUsed); put("flexibilityScrollUsed", e.flexibilityScrollUsed); put("armorSecondDie", e.armorSecondDie); put("armorRerollUsed", e.armorRerollUsed); put("contextArmor", e.contextArmor); put("acidTargets", JSONArray(e.acidTargets)); put("mageCardioCasts", e.mageCardioCasts)
         }) }
     }
     context.getSharedPreferences("dof_save", Context.MODE_PRIVATE).edit()
@@ -2640,7 +2777,9 @@ private fun loadState(context: Context): AppState {
                 it.optBoolean("hunterUsed", false), it.optBoolean("mysticUsed", false), it.optString("mysticDescription", ""),
                 it.optJSONArray("typeDice")?.let { arr -> (0 until arr.length()).map { i -> arr.optInt(i) } } ?: emptyList(),
                 it.optInt("quantityDie", 0), it.optBoolean("bulkerUsed", false), it.optBoolean("flexibilityScrollUsed", false),
-                it.optInt("armorSecondDie", 0), it.optBoolean("armorRerollUsed", false), it.optString("contextArmor", ""))
+                it.optInt("armorSecondDie", 0), it.optBoolean("armorRerollUsed", false), it.optString("contextArmor", ""),
+                it.optJSONArray("acidTargets")?.let { arr -> (0 until arr.length()).map { i -> arr.optInt(i) } } ?: emptyList(),
+                it.optInt("mageCardioCasts", 0))
         }
         val baseState = AppState()
         baseState.copy(character = if (c.profileType == "advanced" && c.className in classAchievements) c.copy(unlockedClasses = (c.unlockedClasses + c.className).distinct()) else c,
@@ -2668,7 +2807,8 @@ private fun loadState(context: Context): AppState {
             stepLastClosedId = obj.optString("stepLastClosedId", ""),
             claimedChapterLoot = strings("claimedChapterLoot", emptyList()).filter { title -> storyChapters.any { it.title == title } },
             manualChapterAccess = strings("manualChapterAccess", emptyList()).filter { title -> storyChapters.any { it.title == title && it.restricted } },
-            equippedWeapon = obj.optString("equippedWeapon", ""), equippedSupport = obj.optString("equippedSupport", ""), equippedArmor = obj.optString("equippedArmor", ""), meditationActive = obj.optBoolean("meditationActive", false),
+            equippedWeapon = obj.optString("equippedWeapon", ""), equippedSupport = obj.optString("equippedSupport", ""), equippedArmor = obj.optString("equippedArmor", ""), mageJewelSpent = obj.optInt("mageJewelSpent", 0).coerceAtLeast(0),
+            mageResting = obj.optBoolean("mageResting", false), meditationActive = obj.optBoolean("meditationActive", false),
             vigorActive = obj.optBoolean("vigorActive", false), quantumMode = obj.optString("quantumMode", ""), illusionActive = obj.optBoolean("illusionActive", false),
             cardioScrollActive = obj.optBoolean("cardioScrollActive", false), forceScrollActive = obj.optBoolean("forceScrollActive", false),
             congestionScrollActive = obj.optBoolean("congestionScrollActive", false),
