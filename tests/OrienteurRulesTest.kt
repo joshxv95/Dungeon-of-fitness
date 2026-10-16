@@ -1,0 +1,37 @@
+package com.dungeonoffitness.app
+
+fun main() {
+    var checks = 0
+    fun verify(value: Boolean) { check(value); checks++ }
+    verify(OrienteurRules.PURSUER_HP == 400)
+    verify(OrienteurRules.beginsPursuit("Orienteur obsédé"))
+    verify(!OrienteurRules.beginsPursuit("Clan Nazcool"))
+    verify(!OrienteurRules.shouldJoin(false, "Pillard Martial"))
+    verify(OrienteurRules.shouldJoin(true, "Pillard Martial"))
+    verify(OrienteurRules.shouldJoin(true, "Bulker Fruité"))
+    verify(OrienteurRules.shouldJoin(true, "Clan Nazcool"))
+    verify(!OrienteurRules.shouldJoin(true, "Orienteur obsédé"))
+    verify(OrienteurRules.canNegotiateNazcool("Clan Nazcool", true))
+    verify(!OrienteurRules.canNegotiateNazcool("Clan Nazcool", false))
+    verify(OrienteurRules.canNegotiateNazcool("Clan Nazcool", true))
+    verify(!OrienteurRules.canNegotiateNazcool("Orienteur obsédé", true))
+    verify(OrienteurRules.combatTargets(listOf(100, 100), 0, false) == listOf(100, 100))
+    verify(OrienteurRules.combatTargets(listOf(100, 100), 400, false) == listOf(100, 100, 400))
+    verify(OrienteurRules.combatTargets(listOf(4000), 400, true) == listOf(0, 400))
+    val normal = OrienteurRules.combatTargets(listOf(100, 200), 400, false)
+    val targeted = MageSpellRules.applyAttack(normal, 150, 2, emptySet())
+    verify(targeted.remaining == listOf(100, 200, 250))
+    verify(targeted.inflicted == 150)
+    verify(OrienteurRules.followerAfterDamage(targeted.remaining, 2, 400) == 250)
+    val multi = MageSpellRules.applyAttack(normal, 350, null, emptySet())
+    verify(multi.remaining == listOf(0, 0, 350))
+    verify(multi.inflicted == 350)
+    val defeated = MageSpellRules.applyAttack(normal, 700, null, emptySet())
+    verify(defeated.remaining == listOf(0, 0, 0))
+    verify(OrienteurRules.followerAfterDamage(defeated.remaining, 2, 400) == 0)
+    verify(OrienteurRules.followerAfterDamage(listOf(70, 100), 2, 0) == 0)
+    verify(OrienteurRules.rewardForVictory(1200, false) == 1200)
+    verify(OrienteurRules.rewardForVictory(2400, true) == 0)
+    verify(OrienteurRules.rewardForVictory(0, false) == 0)
+    println("OrienteurRules : $checks assertions OK")
+}

@@ -1,3 +1,13 @@
+## 2.8.0 — Poursuite de l’Orienteur obsédé et choix du Clan Nazcool (livre p. 43, 185)
+- Lorsqu’un trajet tire l’Orienteur obsédé (résultat 42 des 7d6), une poursuite persistante commence. L’Orienteur a 400 PV et ne donne aucun PO. Le vaincre, esquiver ou fuir ne supprime pas la poursuite.
+- À chaque nouvelle rencontre valable (y compris pacifique et Clan Nazcool), il revient avec 400 PV en **adversaire supplémentaire**. Il n’est pas inclus dans le dé de quantité, ne multiplie pas le butin et ne modifie pas la cadence des jets ni les pas du podomètre.
+- L’interface affiche l’état permanent de poursuite, ses PV distincts, une cible spéciale pour armes à distance, sorts et Shaker poison, et le traitement des attaques normales, marques acido-basiques et Shaker sombre. Les améliorations de combat en groupe tiennent compte du nombre réel d’adversaires debout.
+- Les échanges pacifiques, le shaker offert par le Bulker, le paiement des Gardes et la reddition au Bibilithe ne font pas disparaître l’Orienteur : une fois l’événement pacifique clos, il reste seul à affronter. Les rencontres pacifiques ne produisent jamais de PO à la victoire du renfort.
+- Clan Nazcool : avant de porter un coup, choix confirmé de laisser partir le Clan sans butin, mettant fin à la poursuite si elle est active. Choisir le combat laisse la poursuite active. Une nouvelle rencontre aléatoire future avec l’Orienteur peut relancer une poursuite.
+- La fuite, les rencontres évitables et le Shaker persuasion n'annulent pas la poursuite persistante (adaptation pour la continuité de la campagne). Une escorte templiométrique empêche les nouvelles rencontres pendant sa durée, mais n’efface pas la poursuite.
+- État `orienteurPursuitActive` et PV du renfort sauvegardés (schéma 32), lecture rétrocompatible des sauvegardes v2.7. VersionCode 209, versionName 2.8.0 ; identifiant de package et clé de signature identiques.
+- Nouveau module Kotlin pur `OrienteurRules.kt` et tests (26 assertions), tests existants exécutés séparément. Compilation complète de l’APK à confirmer via GitHub Actions. Aucun `TESTS-Vx.x.md` ajouté.
+
 ## 2.7.0 — Echanges Elfit/Amazone et chantage Bibilithe (p. 43, 172, 178, 181)
 - Elfit : choix d'un objet réellement possédé en échange d'un Bijou de mage niv.1. Pas de transaction en PO ni de butin. Convention d'interface : un bijou de mage unique et évolutif, donc échange impossible si déjà possédé ; valeur virtuelle de base 200 PO pour le calcul du bonus +1 de niveau 1.
 - Amazone : choix de l'objet cédé et de l'une des trois armes féériques du catalogue (Arc, Sabre ou Sceptre féérique). Pas de dépense de PO ; l'application n'autorise pas de doublon d'arme unique.

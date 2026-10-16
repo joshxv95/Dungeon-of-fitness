@@ -244,7 +244,8 @@ private data class Encounter(val name: String, val quantity: Int, val hp: Int, v
     val flexibilityScrollUsed: Boolean = false,
     val armorSecondDie: Int = 0, val armorRerollUsed: Boolean = false,
     val contextArmor: String = "",
-    val acidTargets: List<Int> = emptyList(), val mageCardioCasts: Int = 0)
+    val acidTargets: List<Int> = emptyList(), val mageCardioCasts: Int = 0,
+    val pursuerHp: Int = 0, val pursuitBeganHere: Boolean = false)
 
 private data class AppState(
     val character: Character = Character(),
@@ -261,6 +262,7 @@ private data class AppState(
     val equippedArmor: String = "",
     val mageJewelSpent: Int = 0, val mageResting: Boolean = false,
     val chevalierProtectionActive: Boolean = false,
+    val orienteurPursuitActive: Boolean = false,
     val meditationActive: Boolean = false,
     val cardioScrollActive: Boolean = false,
     val forceScrollActive: Boolean = false,
@@ -467,11 +469,11 @@ fun DungeonApp(adventureNavigationToken: Int = 0) {
                                         state.cardioScrollActive, state.forceScrollActive, state.congestionScrollActive), heroic, crown)
                                     val e = state.lastEncounter
                                     if (weapon.ranged && e != null) {
-                                        val hp = encounterHp(e)
+                                        val hp = combatHp(e)
                                         if (target != null && target in hp.indices && hp[target] > 0) {
                                             val after = resolveTarget(state, damage, target, attack = true)
-                                            val actual = hp[target] - (after.lastEncounter?.let { encounterHp(it).getOrNull(target) } ?: 0)
-                                            update(after.copy(log = (listOf("${weapon.name} : cible ${e.name} n°${target + 1}, $actual PV infligés (bonus acido-basique éventuel inclus, sans transfert).") + after.log).take(100)))
+                                            val actual = hp[target] - (after.lastEncounter?.let { combatHp(it).getOrNull(target) } ?: 0)
+                                            update(after.copy(log = (listOf("${weapon.name} : cible ${combatTargetName(e, target)}, $actual PV infligés (bonus acido-basique éventuel inclus, sans transfert).") + after.log).take(100)))
                                         }
                                     } else if (!weapon.ranged) update(resolve(state, damage, attack = true))
                                 }
@@ -483,6 +485,7 @@ fun DungeonApp(adventureNavigationToken: Int = 0) {
                         onTradeElfit = { offered -> if (!state.mageResting) update(tradeWithElfit(state, offered)) },
                         onTradeAmazone = { offered, reward -> if (!state.mageResting) update(tradeWithAmazone(state, offered, reward)) },
                         onSurrenderBibilithe = { offered -> if (!state.mageResting) update(surrenderToBibilithe(state, offered)) },
+                        onCallOffNazcool = { if (!state.mageResting) update(callOffNazcool(state)) },
                         onFlee = { towardDestination -> if (!state.mageResting) update(fleeEncounter(state, towardDestination)) },
                         onHunt = { update(useHunterAbility(state)) },
                         onBulker = { update(useBulkerCompanion(state)) },
@@ -496,7 +499,7 @@ fun DungeonApp(adventureNavigationToken: Int = 0) {
                         onMeditate = {
                             val e = state.lastEncounter
                             if (e != null && !e.safe && "Manuel de méditation" in state.inventory && !state.meditationActive)
-                                update(state.copy(meditationActive = true, log = (listOf("Méditation effectuée : ${60 * e.quantity} secondes pour ${e.quantity} adversaire(s).") + state.log).take(100)))
+                                update(state.copy(meditationActive = true, log = (listOf("Méditation effectuée : ${60 * (e.quantity + if (e.pursuerHp > 0) 1 else 0)} secondes pour ${e.quantity + if (e.pursuerHp > 0) 1 else 0} adversaire(s).") + state.log).take(100)))
                         },
                         onUsePersuasion = {
                             val e = state.lastEncounter
@@ -507,15 +510,15 @@ fun DungeonApp(adventureNavigationToken: Int = 0) {
                         },
                         onUseConsumable = { name, mode ->
                             val e = state.lastEncounter
-                            if (!state.mageResting && e != null && !e.safe && name in state.inventory) {
+                            if (!state.mageResting && e != null && (!e.safe || e.pursuerHp > 0) && name in state.inventory) {
                                 when (name) {
                                     "Shaker poison" -> {
-                                        val current = encounterHp(e)
+                                        val current = combatHp(e)
                                         val target = mode.toIntOrNull()?.coerceIn(0, current.lastIndex) ?: current.indexOfFirst { it > 0 }.coerceAtLeast(0)
                                         val poisonDamage = minOf(700, current[target])
                                         val after = resolveTarget(state, poisonDamage, target)
                                         update(after.copy(inventory = removeOne(after.inventory, name),
-                                            log = (listOf("Shaker poison : $poisonDamage dégâts à distance sur ${e.name} n°${target + 1} (maximum 700, sans transfert aux autres ennemis).") + after.log).take(100)))
+                                            log = (listOf("Shaker poison : $poisonDamage dégâts à distance sur ${combatTargetName(e, target)} (maximum 700, sans transfert aux autres ennemis).") + after.log).take(100)))
                                     }
                                     "Shaker sombre" -> {
                                         // Livre p. 173 : 700 dégâts à distance, cible un groupe.
@@ -841,9 +844,9 @@ private fun useBulkerCompanion(s: AppState): AppState {
         e.safe || e.bulkerUsed || e.quantity < 1 || encounterHp(e).any { it != e.hp }) return s
     val hp = encounterHp(e).dropLast(1)
     val remaining = hp.size
-    if (remaining == 0) return s.copy(lastEncounter = null, meditationActive = false, vigorActive = false,
+    if (remaining == 0) return s.copy(lastEncounter = pursuerOnly(e), meditationActive = false, vigorActive = false,
         quantumMode = "", illusionActive = false, warriorActive = false, oracleCombatActive = false, cardioScrollActive = false, forceScrollActive = false, congestionScrollActive = false,
-        log = (listOf("Bulker Fruité a neutralisé l'unique adversaire en discutant avec lui : rencontre résolue sans combat ni butin (p. 76).") + s.log).take(100))
+        log = (listOf("Bulker Fruité a neutralisé l’unique adversaire de la rencontre (p. 76). ${if (e.pursuerHp > 0) "L’Orienteur obsédé reste à affronter sans butin." else "Rencontre terminée sans combat ni butin."}") + s.log).take(100))
     val reward = (e.reward.toLong() * remaining / e.quantity).toInt()
     return s.copy(lastEncounter = e.copy(quantity = remaining, remainingHp = hp.sum(), enemyHp = hp,
         reward = reward, bulkerUsed = true), log =
@@ -1136,6 +1139,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
     onTradeElfit: (String) -> Unit,
     onTradeAmazone: (String, String) -> Unit,
     onSurrenderBibilithe: (String) -> Unit,
+    onCallOffNazcool: () -> Unit,
     onFlee: (Boolean) -> Unit,
     onHunt: () -> Unit,
     onBulker: () -> Unit,
@@ -1228,6 +1232,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
         val costText = when (kind) {
             "Elfit" -> "Échanger définitivement « $tradeOffered » contre un Bijou de mage niv.1 ? Aucun PO ne sera dépensé."
             "Amazone" -> "Échanger définitivement « $tradeOffered » contre « $fairyReward » ? Aucun PO ne sera dépensé."
+            "Nazcool" -> if (state.orienteurPursuitActive) "Éviter le combat contre le Clan Nazcool pour mettre fin à la poursuite actuelle de l’Orienteur obsédé ? Aucun PO." else "Éviter le combat contre le Clan Nazcool sans recevoir de PO ?"
             else -> "Céder définitivement « $tradeOffered » et TOUS tes ${state.character.po} PO au Bibilithe ? Aucun butin."
         }
         AlertDialog(onDismissRequest = { specialConfirm = "" },
@@ -1238,12 +1243,13 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                     "Elfit" -> onTradeElfit(tradeOffered)
                     "Amazone" -> onTradeAmazone(tradeOffered, fairyReward)
                     "Bibilithe" -> onSurrenderBibilithe(tradeOffered)
+                    "Nazcool" -> onCallOffNazcool()
                 }
             }) { Text("Confirmer définitivement") } },
             dismissButton = { TextButton(onClick = { specialConfirm = "" }) { Text("Annuler") } })
     }
-    if (darkShakerConfirm && state.lastEncounter != null && !state.lastEncounter.safe && "Shaker sombre" in state.inventory) {
-        val targets = encounterHp(state.lastEncounter)
+    if (darkShakerConfirm && state.lastEncounter != null && (!state.lastEncounter.safe || state.lastEncounter.pursuerHp > 0) && "Shaker sombre" in state.inventory) {
+        val targets = combatHp(state.lastEncounter)
         val effect = groupSplashDamage(targets, 700)
         AlertDialog(onDismissRequest = { darkShakerConfirm = false },
             title = { Text("🧪 Utiliser le Shaker sombre ?") },
@@ -1492,11 +1498,19 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                 item { Button(onClick = onArrive, modifier = Modifier.fillMaxWidth()) { Text("Valider l'arrivée à ${state.destination}") } }
             }
         }
+        if (state.orienteurPursuitActive) item {
+            Card(border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("🧭 POURSUITE : Orienteur obsédé", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleMedium)
+                    Text("Il revient avec 400 PV lors de chaque nouvelle rencontre (sans butin). Le battre ne suffit pas : seul le choix pacifique du Clan Nazcool met fin à la poursuite (p. 43, 185).")
+                }
+            }
+        }
         if (state.chevalierProtectionActive && state.destinationKm > 0.0) item {
             Text("🛡️ Escorte templiométrique ACTIVE : pas de rencontres jusqu'à ${state.destination} (p. 43). Le podomètre continue jusqu'aux étapes/à l'arrivée.", color = Color(0xFFEBC582))
         }
         item { Text("Progression totale : ${"%.3f".format(state.totalTravelKm)} $unit · Rencontres déclenchées : ${state.encounters}") }
-        item { Text("Une rencontre est déclenchée tous les ${if ("Le Troll Conteur" in availableCompanions(state)) 3 else 6} ${unit} cumulés${if ("Le Troll Conteur" in availableCompanions(state)) " (Troll Conteur)" else ""}${if (state.chevalierProtectionActive) " sauf sous escorte" else ""}. Les adversaires et contextes proviennent de la table officielle (p. 42-43). Les échanges Elfit/Amazone et la reddition au Bibilithe sont pris en charge ; la poursuite de l'Orienteur reste manuelle.", style = MaterialTheme.typography.bodySmall) }
+        item { Text("Une rencontre est déclenchée tous les ${if ("Le Troll Conteur" in availableCompanions(state)) 3 else 6} ${unit} cumulés${if ("Le Troll Conteur" in availableCompanions(state)) " (Troll Conteur)" else ""}${if (state.chevalierProtectionActive) " sauf sous escorte" else ""}. Les adversaires et contextes proviennent de la table officielle (p. 42-43). Les échanges spéciaux et la poursuite de l’Orienteur obsédé sont automatisés.", style = MaterialTheme.typography.bodySmall) }
         if (state.mageResting && (state.character.className != "Mage" || state.character.profileType != "advanced")) item {
             Button(onClick = { onMageSpell("resume", -1) }, modifier = Modifier.fillMaxWidth()) {
                 Text("⏯ Reprendre la partie mise en pause par le sort")
@@ -1536,8 +1550,18 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
             item { Text("⚔️ RENCONTRE — TABLE DU LIVRE", color = Color(0xFFEBC582), style = MaterialTheme.typography.headlineSmall) }
             item { Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("${e.name} ×${e.quantity} (jet : ${e.roll})", style = MaterialTheme.typography.titleLarge)
-                HealthGauge("❤️ Santé totale des ennemis", encounterHp(e).sum(), e.hp * e.quantity)
+                HealthGauge("❤️ Santé des adversaires principaux", encounterHp(e).sum(), e.hp * e.quantity)
+                if (e.pursuerHp > 0) {
+                    Text("L’Orienteur est une cible supplémentaire, jamais comptée dans le dé de quantité et sans récompense.", style = MaterialTheme.typography.bodySmall)
+                }
+                if (e.name == "Orienteur obsédé") Text("🧭 L’Orienteur revient tant que la poursuite est active. Même vaincu, il pourra revenir lors des prochaines rencontres (p. 43).")
                 Text(if (e.safe) "🕊️ Rencontre pacifique : aucun butin automatique" else "🪙 Butin potentiel : ${e.reward} PO")
+                if (e.name == "Clan Nazcool" && encounterHp(e).all { it == e.hp } && e.pursuerHp in listOf(0, OrienteurRules.PURSUER_HP)) {
+                    Text(if (state.orienteurPursuitActive) "📜 Clan Nazcool (p. 43) : affronte-les OU laisse-les partir pour mettre fin à la poursuite de l’Orienteur. Aucun PO en cas d’accord." else "📜 Clan Nazcool (p. 43) : tu peux les affronter ou les laisser partir sans butin. Tu n’es pas poursuivi actuellement.")
+                    OutlinedButton(onClick = { specialConfirm = "Nazcool" }, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (state.orienteurPursuitActive) "Négocier la fin de la poursuite — 0 PO" else "Laisser partir le Clan Nazcool — 0 PO")
+                    }
+                }
                 if (state.chevalierProtectionActive) Text("🛡️ Escorte templiométrique active : aucune autre rencontre jusqu’à la destination.", color = Color(0xFFEBC582))
                 if (e.name == "Chevalier Templiométrique" && e.safe) {
                     Text("Chevalier templiométrique (p. 43) : accepte son escorte pour éviter les rencontres restantes jusqu’à la destination de ce voyage. Aucun PO gagné.")
@@ -1622,24 +1646,25 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                     else
                         Text("Barde audacieux (règle maison) : quantité ×2 et butin +25 % sur la quantité doublée (×2,5 par rapport au butin de base).", style = MaterialTheme.typography.bodySmall)
                 }
-                Text("Adversaires : ${encounterHp(e).count { it > 0 }} encore debout sur ${e.quantity}")
+                Text("Adversaires : ${combatHp(e).count { it > 0 }} encore debout (${e.quantity} de la rencontre${if (e.pursuerHp > 0) " + Orienteur obsédé" else ""})")
                 encounterHp(e).forEachIndexed { index, hpLeft ->
                     HealthGauge("${if (hpLeft == 0) "💀" else "👹"} ${e.name} n°${index + 1}", hpLeft, e.hp)
                 }
-                if (state.character.className == "Mage" && state.character.profileType == "advanced" && !e.safe && !state.mageResting) {
+                if (e.pursuerHp > 0) HealthGauge("🧭 Orienteur obsédé (cible supplémentaire)", e.pursuerHp, OrienteurRules.PURSUER_HP)
+                if (state.character.className == "Mage" && state.character.profileType == "advanced" && (!e.safe || e.pursuerHp > 0) && !state.mageResting) {
                     HorizontalDivider()
                     Text("🔮 SORTS DU MAGE — p. 176", style = MaterialTheme.typography.titleMedium, color = Color(0xFFEBC582))
                     Text("Dessine les lettres du sort avec ton corps avant chaque lancement. Les sorts ne nécessitent pas d'achat.", style = MaterialTheme.typography.bodySmall)
-                    val livingTargets = encounterHp(e).indices.filter { encounterHp(e)[it] > 0 }
+                    val livingTargets = combatHp(e).indices.filter { combatHp(e)[it] > 0 }
                     if (livingTargets.isNotEmpty()) {
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                             livingTargets.forEach { idx ->
                                 OutlinedButton(onClick = { mageTarget = idx }) {
-                                    Text("${if (mageTarget == idx) "●" else "○"} ${e.name} n°${idx+1}")
+                                    Text("${if (mageTarget == idx) "●" else "○"} ${combatTargetName(e, idx)}")
                                 }
                             }
                         }
-                        Text("Cible choisie : ${e.name} n°${mageTarget + 1}")
+                        Text("Cible choisie : ${combatTargetName(e, mageTarget)}")
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = mageExerciseDone, onCheckedChange = { mageExerciseDone = it })
@@ -1676,7 +1701,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                     if (e.effect.contains("Contexte +2")) Text("Effet Trollympien : +2 au contexte")
                 } else Text("Rencontre enregistrée avant v1.3 : jet de contexte initial indisponible.")
                 Text("Contexte : ${e.context}")
-                Text("Conséquence : ${if (e.context == "Vous êtes piégé !") "${10 * e.quantity} burpees (10 × ${e.quantity} adversaires)" else e.exercise}")
+                Text("Conséquence : ${if (e.context == "Vous êtes piégé !") "${10 * (e.quantity + if (e.pursuerHp > 0) 1 else 0)} burpees (10 × ${e.quantity + if (e.pursuerHp > 0) 1 else 0} adversaires)" else e.exercise}")
                 if (e.context == "Une embuscade !") Text("Attention : la durée d’utilisation des objets est doublée. Pour les armes à durée, chaque tranche doit durer deux fois plus longtemps ; les dégâts par tranche restent identiques.")
                 if (e.effect.isNotBlank()) Text("Effet immédiat : ${e.effect}")
                 if (e.mysticDescription.isNotBlank()) Text("Pouvoir de classe : ${e.mysticDescription}")
@@ -1772,11 +1797,11 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                     } else if (e.bulkerUsed) Text("Bulker a déjà neutralisé un adversaire lors de cette rencontre.")
                     else Text("Bulker ne peut intervenir qu'avant le début des attaques.")
                 }
-                if (!e.safe) {
+                if (!e.safe || e.pursuerHp > 0) {
                     if ("Manuel de méditation" in state.inventory) {
                         if (state.meditationActive) Text("Méditation active : +100 PV sur chacune de vos attaques jusqu’à la fin de ce combat.")
                         else Button(onClick = onMeditate, modifier = Modifier.fillMaxWidth()) {
-                            Text("J’ai médité ${60 * e.quantity} secondes (${e.quantity} × 60 sec.) — activer +100 PV/attaque")
+                            Text("J’ai médité ${60 * (e.quantity + if (e.pursuerHp > 0) 1 else 0)} secondes (${e.quantity + if (e.pursuerHp > 0) 1 else 0} × 60 sec.) — activer +100 PV/attaque")
                         }
                     }
                     if ("Shaker persuasion" in state.inventory) {
@@ -1791,15 +1816,15 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                     if (state.quantumMode.isNotBlank()) Text("Shaker quantique actif : ${state.quantumMode.lowercase()} le temps (facteur 2). Les durées des attaques sont recalculées automatiquement ci-dessous ; dégâts inchangés.")
                     if ("Shaker poison" in state.inventory) {
                         Text("Shaker poison : 700 dégâts à distance sur une seule cible ; consommé après usage.")
-                        val living = encounterHp(e).indices.filter { encounterHp(e)[it] > 0 }
+                        val living = combatHp(e).indices.filter { combatHp(e)[it] > 0 }
                         living.forEach { index ->
                             OutlinedButton(onClick = { onUseConsumable("Shaker poison", index.toString()) }, modifier = Modifier.fillMaxWidth()) {
-                                Text("Poison → ${e.name} n°${index + 1} (${encounterHp(e)[index]} PV)")
+                                Text("Poison → ${combatTargetName(e, index)} (${combatHp(e)[index]} PV)")
                             }
                         }
                     }
                     if ("Shaker sombre" in state.inventory) {
-                        val group = groupSplashDamage(encounterHp(e), 700)
+                        val group = groupSplashDamage(combatHp(e), 700)
                         Text("🧪 Shaker sombre (livre p. 173) : 700 dégâts à distance sur un groupe. " +
                             "Convention de l'application : 700 dégâts sur chaque ennemi encore debout, " +
                             "sans multiplication par le Guerrier, l’Oracle ni le Shaker vigueur. " +
@@ -1865,7 +1890,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                                 Checkbox(checked = heroicAllyConfirmed, onCheckedChange = { heroicAllyConfirmed = it })
                                 Text("Récits héroïques : nous sommes exactement deux combattants alliés contre un seul ennemi encore debout (×2)")
                             }
-                            if (encounterHp(e).count { it > 0 } != 1) Text("Récits héroïques : bonus indisponible tant que plusieurs adversaires restent debout.")
+                            if (combatHp(e).count { it > 0 } != 1) Text("Récits héroïques : bonus indisponible tant que plusieurs adversaires restent debout.")
                         }
                         if (hasCrown) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1888,10 +1913,10 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                             Text("Exercice : ${w.exercise}")
                             if (w.ranged) {
                                 Text("Attaque à distance : choisis une cible. Les dégâts excédentaires ne touchent pas les autres ennemis (règle maison de ciblage).")
-                                val living = encounterHp(e).indices.filter { encounterHp(e)[it] > 0 }
+                                val living = combatHp(e).indices.filter { combatHp(e)[it] > 0 }
                                 living.forEach { index ->
                                     OutlinedButton(onClick = { rangedTarget = index }, modifier = Modifier.fillMaxWidth()) {
-                                        Text("${if (rangedTarget == index) "●" else "○"} ${e.name} n°${index + 1} — ${encounterHp(e)[index]} PV")
+                                        Text("${if (rangedTarget == index) "●" else "○"} ${combatTargetName(e, index)} — ${encounterHp(e)[index]} PV")
                                     }
                                 }
                                 if (rangedTarget !in living) Text("Sélectionne un adversaire encore debout pour lancer l'attaque.")
@@ -1953,9 +1978,9 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                                 }
                                 Text("Temps total à réaliser : ${effective.toLong() * n} secondes pour $n série(s).")
                             }
-                            if (w.ranged && rangedTarget in encounterHp(e).indices && encounterHp(e)[rangedTarget] > 0 && n > 0)
-                                Text("Dégâts effectifs sur cette cible : ${minOf(damagePreview, encounterHp(e)[rangedTarget])} PV ; surplus perdu.")
-                            Button(enabled = n in 1..1000 && (!w.ranged || (rangedTarget in encounterHp(e).indices && encounterHp(e)[rangedTarget] > 0)),
+                            if (w.ranged && rangedTarget in combatHp(e).indices && combatHp(e)[rangedTarget] > 0 && n > 0)
+                                Text("Dégâts effectifs sur cette cible : ${minOf(damagePreview, combatHp(e)[rangedTarget])} PV ; surplus perdu.")
+                            Button(enabled = n in 1..1000 && (!w.ranged || (rangedTarget in combatHp(e).indices && combatHp(e)[rangedTarget] > 0)),
                                 onClick = { onWeaponAttack(w.name, n, pattesUsed, if (w.ranged) rangedTarget else null, supportConfirmed, armorConfirmed, heroicAllyConfirmed, crownRealPlayerConfirmed); attackCount = "1"; pattesUsed = false; supportConfirmed = false; armorConfirmed = false; heroicAllyConfirmed = false; crownRealPlayerConfirmed = false },
                                 modifier = Modifier.fillMaxWidth()) { Text("Exercice réalisé — infliger $damagePreview PV") }
                         }
@@ -1973,13 +1998,13 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                 }
                 if (e.safe || e.context == "Ils n'ont rien vu.") {
                     OutlinedButton(onClick = onSkip, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (e.safe) "Terminer la rencontre pacifique" else "Éviter la rencontre — sans fuite")
+                        Text(if (e.safe && e.pursuerHp > 0) "Terminer l’échange pacifique — affronter l’Orienteur" else if (e.safe) "Terminer la rencontre pacifique" else "Éviter la rencontre — sans fuite")
                     }
                 }
-                if (!e.safe) {
+                if (!e.safe || e.pursuerHp > 0) {
                     var fleeExercisesConfirmed by remember(e.name, e.roll, e.contextDie) { mutableStateOf(false) }
                     val mandatory = when (e.context) {
-                        "Vous êtes piégé !" -> "${10 * e.quantity} burpees"
+                        "Vous êtes piégé !" -> "${10 * (e.quantity + if (e.pursuerHp > 0) 1 else 0)} burpees"
                         "Ils arrivent !" -> "50 jumping jacks"
                         "Ils ne vous échapperont pas." -> "20 jumping jacks"
                         else -> "Aucun exercice de contexte supplémentaire"
@@ -2592,15 +2617,21 @@ private fun travel(s: AppState, km: Double, viaSteps: Boolean = false): AppState
     val newTotal = s.totalTravelKm + if (s.retreatActive) 0.0 else increment
     val newChecks = kotlin.math.floor((newTotal + 0.00000001) / encounterSpacing).toInt()
     val encounterTriggered = !s.retreatActive && !s.chevalierProtectionActive && newChecks > oldChecks
-    val encounter = if (encounterTriggered) generateEncounter(s.equippedWeapon, s.equippedSupport, s.character, s.bardJourney, s.inventory, s.equippedArmor, s.mageJewelSpent) else s.lastEncounter
+    val baseEncounter = if (encounterTriggered) generateEncounter(s.equippedWeapon, s.equippedSupport, s.character, s.bardJourney, s.inventory, s.equippedArmor, s.mageJewelSpent) else s.lastEncounter
+    val startsPursuit = encounterTriggered && baseEncounter?.let { OrienteurRules.beginsPursuit(it.name) } == true && !s.orienteurPursuitActive
+    val encounter = baseEncounter?.let { e ->
+        e.copy(pursuerHp = if (encounterTriggered && OrienteurRules.shouldJoin(s.orienteurPursuitActive, e.name)) OrienteurRules.PURSUER_HP else e.pursuerHp,
+            pursuitBeganHere = startsPursuit)
+    }
     val logs = if (encounter != null && encounterTriggered) listOf(
-        "Rencontre : ${encounter.name} ×${encounter.quantity}" + if (s.bardJourney) {
+        "Rencontre : ${encounter.name} ×${encounter.quantity}" + (if (encounter.pursuerHp > 0) " + Orienteur obsédé (400 PV, aucun PO)" else "") + if (s.bardJourney) {
             if (encounter.effect.contains("quantité fixe", ignoreCase = true)) " — Barde audacieux : quantité fixe, pas de bonus."
             else " — Barde audacieux : quantité doublée et butin ×2,5."
         } else ""
     ) + s.log else if (viaSteps && !encounterTriggered) s.log else if (viaSteps) listOf("Podomètre : seuil de rencontre atteint (jet non applicable à cette zone).") + s.log else listOf("+${"%.2f".format(increment)} ${if (s.character.profileType == "novice") "minute(s)" else "km"} parcouru(s)" +
         if (encounterTriggered) " ; jet de rencontre ignoré (type indisponible)." else "") + s.log
     return s.copy(distance = newDistance, totalTravelKm = newTotal, lastEncounter = encounter,
+        orienteurPursuitActive = s.orienteurPursuitActive || startsPursuit,
         meditationActive = if (encounterTriggered) false else s.meditationActive,
         warriorActive = if (encounterTriggered) false else s.warriorActive,
         vigorActive = if (encounterTriggered) false else s.vigorActive,
@@ -2710,17 +2741,33 @@ private fun encounterHp(e: Encounter): List<Int> {
     }
 }
 
+/** Cibles séparées : les 400 PV du poursuivant ne changent jamais le tirage de quantité ou le butin. */
+private fun combatHp(e: Encounter): List<Int> =
+    OrienteurRules.combatTargets(encounterHp(e), e.pursuerHp, e.safe)
+
+private fun combatTargetName(e: Encounter, index: Int): String =
+    if (e.pursuerHp > 0 && index == e.quantity) "Orienteur obsédé" else "${e.name} n°${index + 1}"
+
+/** Après un échange pacifique / une reddition, le poursuivant reste à affronter. */
+private fun pursuerOnly(e: Encounter): Encounter? = if (e.pursuerHp > 0)
+    e.copy(name = "Orienteur obsédé", hp = OrienteurRules.PURSUER_HP, quantity = 1, initialQuantity = 1,
+        remainingHp = e.pursuerHp, enemyHp = listOf(e.pursuerHp), pursuerHp = 0, reward = 0,
+        safe = false, effect = "L’Orienteur obsédé poursuit le groupe ; aucune récompense.",
+        quantityDie = 0, acidTargets = emptyList(), armorSecondDie = 0, armorRerollUsed = false)
+else null
+
 private fun applyDamage(s: AppState, damage: Int, target: Int?, attack: Boolean = false): AppState = s.lastEncounter?.let { e ->
-    val before = encounterHp(e)
+    val before = combatHp(e)
     val outcome = MageSpellRules.applyAttack(before, damage, target, if (attack) e.acidTargets else emptyList())
     if (outcome.inflicted == 0) return@let s
     val remaining = outcome.remaining.sum()
     val markNote = if (outcome.markedHitCount > 0) " · Flèche acido-basique : +50 PV sur ${outcome.markedHitCount} cible(s) touchée(s)." else ""
-    if (remaining > 0) s.copy(lastEncounter = e.copy(remainingHp = remaining, enemyHp = outcome.remaining),
+    if (remaining > 0) s.copy(lastEncounter = e.copy(remainingHp = outcome.remaining.take(e.quantity).sum(),
+        enemyHp = outcome.remaining.take(e.quantity), pursuerHp = OrienteurRules.followerAfterDamage(outcome.remaining, e.quantity, e.pursuerHp)),
         log = (listOf("${e.name} : ${outcome.inflicted} dégâts, $remaining PV restants (${outcome.remaining.count { it > 0 }} debout)$markNote") + s.log).take(100))
-    else s.copy(character = s.character.copy(po = s.character.po + e.reward), lastEncounter = null,
+    else s.copy(character = s.character.copy(po = s.character.po + OrienteurRules.rewardForVictory(e.reward, e.safe)), lastEncounter = null,
         meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, warriorActive = false, oracleCombatActive = false, cardioScrollActive = false, forceScrollActive = false, congestionScrollActive = false,
-        log = (listOf("${e.name} vaincu(s), butin : ${e.reward} PO$markNote") + s.log).take(100))
+        log = (listOf("${e.name} vaincu(s), butin : ${OrienteurRules.rewardForVictory(e.reward, e.safe)} PO$markNote") + s.log).take(100))
 } ?: s
 
 private fun resolve(s: AppState, damage: Int, attack: Boolean = false): AppState = applyDamage(s, damage, null, attack)
@@ -2737,18 +2784,18 @@ private fun castMageSpell(s: AppState, spell: String, target: Int): AppState {
     if (spell == "rest") return s.copy(mageResting = true,
         log = (listOf("Second souffle quantique (p. 176) : rituel SECONDSOUFFLE confirmé ; pause de la partie et du podomètre.") + s.log).take(100))
     val e = s.lastEncounter ?: return s
-    if (e.safe || target < -1) return s
+    if ((e.safe && e.pursuerHp == 0) || target < -1) return s
     return when (spell) {
         "force" -> {
-            if (target !in encounterHp(e).indices || encounterHp(e)[target] <= 0) s
+            if (target !in combatHp(e).indices || combatHp(e)[target] <= 0) s
             else {
                 val after = resolveTarget(s, warriorDamage(s, 50), target, attack = true)
-                after.copy(log = (listOf("Boule de force (p. 176) : FORCE tracé ; 50 PV à distance de base sur ${e.name} n°${target + 1}.") + after.log).take(100))
+                after.copy(log = (listOf("Boule de force (p. 176) : FORCE tracé ; 50 PV à distance de base sur ${combatTargetName(e, target)}.") + after.log).take(100))
             }
         }
-        "acid" -> if (target !in encounterHp(e).indices || encounterHp(e)[target] <= 0 || target in e.acidTargets) s
+        "acid" -> if (target !in combatHp(e).indices || combatHp(e)[target] <= 0 || target in e.acidTargets) s
             else s.copy(lastEncounter = e.copy(acidTargets = e.acidTargets + target),
-                log = (listOf("Flèche acido-basique (p. 176) : ACIDOBASIQUE tracé, ${e.name} n°${target + 1} marqué (+50 PV par attaque qui le touche).") + s.log).take(100))
+                log = (listOf("Flèche acido-basique (p. 176) : ACIDOBASIQUE tracé, ${combatTargetName(e, target)} marqué (+50 PV par attaque qui le touche).") + s.log).take(100))
         "cardio" -> {
             if (e.contextDie !in 1..6 || e.armorSecondDie != 0 || e.flexibilityScrollUsed || encounterHp(e).any { it != e.hp }) s
             else {
@@ -2767,20 +2814,21 @@ private fun castMageSpell(s: AppState, spell: String, target: Int): AppState {
 /** Groupe entier : 700 PV par adversaire vivant. Convention explicitée dans l'UI. */
 private fun useDarkShaker(s: AppState): AppState {
     val e = s.lastEncounter ?: return s
-    if (e.safe || "Shaker sombre" !in s.inventory) return s
-    val result = groupSplashDamage(encounterHp(e), 700)
+    if ((e.safe && e.pursuerHp == 0) || "Shaker sombre" !in s.inventory) return s
+    val result = groupSplashDamage(combatHp(e), 700)
     if (result.damageDealt <= 0) return s
     val remaining = result.remainingHp.sum()
     val base = s.copy(inventory = removeOne(s.inventory, "Shaker sombre"))
     val note = "Shaker sombre (livre p. 173 ; convention 700 PV par ennemi) : " +
         "${result.damageDealt} dégâts à distance répartis sur ${result.hitCount} adversaire(s)."
     return if (remaining > 0) base.copy(
-        lastEncounter = e.copy(remainingHp = remaining, enemyHp = result.remainingHp),
+        lastEncounter = e.copy(remainingHp = result.remainingHp.take(e.quantity).sum(),
+            enemyHp = result.remainingHp.take(e.quantity), pursuerHp = OrienteurRules.followerAfterDamage(result.remainingHp, e.quantity, e.pursuerHp)),
         log = (listOf(note, "${e.name} : $remaining PV restants.") + s.log).take(100))
-    else base.copy(character = s.character.copy(po = s.character.po + e.reward), lastEncounter = null,
+    else base.copy(character = s.character.copy(po = s.character.po + OrienteurRules.rewardForVictory(e.reward, e.safe)), lastEncounter = null,
         meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false,
         warriorActive = false, oracleCombatActive = false, cardioScrollActive = false, forceScrollActive = false, congestionScrollActive = false,
-        log = (listOf(note, "${e.name} vaincu(s), butin : ${e.reward} PO") + s.log).take(100))
+        log = (listOf(note, "${e.name} vaincu(s), butin : ${OrienteurRules.rewardForVictory(e.reward, e.safe)} PO") + s.log).take(100))
 }
 
 private fun removeOne(items: List<String>, name: String): List<String> {
@@ -2790,7 +2838,9 @@ private fun removeOne(items: List<String>, name: String): List<String> {
 
 private fun skipEncounter(s: AppState): AppState = s.lastEncounter?.let { e ->
     if (!e.safe && e.context != "Ils n'ont rien vu.") return@let s
-    s.copy(lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, warriorActive = false, oracleCombatActive = false, cardioScrollActive = false, forceScrollActive = false, congestionScrollActive = false, log = (listOf("Rencontre évitée ou pacifique : ${e.name}. Aucun butin ni retour obligatoire.") + s.log).take(100))
+    val remainder = if (e.safe) pursuerOnly(e) else null
+    s.copy(lastEncounter = remainder, meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false, warriorActive = false, oracleCombatActive = false, cardioScrollActive = false, forceScrollActive = false, congestionScrollActive = false,
+        log = (listOf(if (remainder != null) "Rencontre pacifique terminée : ${e.name}. L’Orienteur obsédé reste à affronter (400 PV, aucun PO)." else "Rencontre évitée ou pacifique : ${e.name}. Aucun butin ni retour obligatoire.") + s.log).take(100))
 } ?: s
 
 /** Rencontre pacifique, p. 43 : escorte jusqu'à l'arrivée du voyage en cours.
@@ -2818,7 +2868,7 @@ private fun acceptBulkerShaker(s: AppState, name: String): AppState {
 private fun payFitlandGuards(s: AppState): AppState {
     val e = s.lastEncounter ?: return s
     if (e.safe || e.name != "Gardes du Fitland" || encounterHp(e).any { it != e.hp }) return s
-    return s.copy(character = s.character.copy(po = 0), lastEncounter = null,
+    return s.copy(character = s.character.copy(po = 0), lastEncounter = pursuerOnly(e),
         meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false,
         warriorActive = false, oracleCombatActive = false,
         cardioScrollActive = false, forceScrollActive = false, congestionScrollActive = false,
@@ -2865,10 +2915,22 @@ private fun surrenderToBibilithe(s: AppState, offered: String): AppState {
         equippedWeapon = if (s.equippedWeapon == offered) "" else s.equippedWeapon,
         equippedSupport = if (s.equippedSupport == offered) "" else s.equippedSupport,
         equippedArmor = if (s.equippedArmor == offered) "" else s.equippedArmor,
-        lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "",
+        lastEncounter = pursuerOnly(e), meditationActive = false, vigorActive = false, quantumMode = "",
         illusionActive = false, warriorActive = false, oracleCombatActive = false,
         cardioScrollActive = false, forceScrollActive = false, congestionScrollActive = false,
         log = (listOf("💰 Bibilithe (p. 43) : « $offered » et ${s.character.po} PO confisqués ; combat évité sans butin.") + s.log).take(100))
+}
+
+/** Livre p. 43 : renoncer au combat contre le Clan Nazcool met FIN à la poursuite. */
+private fun callOffNazcool(s: AppState): AppState {
+    val e = s.lastEncounter ?: return s
+    if (!OrienteurRules.canNegotiateNazcool(e.name,
+            encounterHp(e).all { it == e.hp } && e.pursuerHp in listOf(0, OrienteurRules.PURSUER_HP))) return s
+    return s.copy(orienteurPursuitActive = false, lastEncounter = null,
+        meditationActive = false, vigorActive = false, quantumMode = "", illusionActive = false,
+        warriorActive = false, oracleCombatActive = false, cardioScrollActive = false,
+        forceScrollActive = false, congestionScrollActive = false,
+        log = (listOf("🧭 Clan Nazcool (p. 43) : combat évité sans PO ; ${if (s.orienteurPursuitActive) "l’Orienteur obsédé cesse de poursuivre le groupe." else "aucune poursuite n’était active."}") + s.log).take(100))
 }
 
 private fun useHunterAbility(s: AppState): AppState = s.lastEncounter?.let { e ->
@@ -2884,7 +2946,7 @@ private fun useHunterAbility(s: AppState): AppState = s.lastEncounter?.let { e -
 } ?: s
 
 private fun fleeEncounter(s: AppState, towardDestination: Boolean): AppState = s.lastEncounter?.let { e ->
-    if (e.safe || s.retreatActive) return@let s
+    if ((e.safe && e.pursuerHp == 0) || s.retreatActive) return@let s
     val acrobatForward = towardDestination && s.character.profileType == "advanced" && s.character.className == "Acrobate" && s.destinationKm > 0.0
     val currentStageStart = if (validGuidedRoute(s)) routeLegStart(s) else 0.0
     val returnDistance = if (acrobatForward) (s.destinationKm - s.distance).coerceAtLeast(0.0)
@@ -2919,7 +2981,7 @@ private fun saveState(context: Context, state: AppState) {
         put("unlockedClasses", JSONArray(c.unlockedClasses)); put("completedAchievements", JSONArray(c.completedAchievements))
     }
     val obj = JSONObject().apply {
-        put("schema", 31); put("character", character); put("distance", state.distance)
+        put("schema", 32); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("totalTravelKm", state.totalTravelKm)
         put("encounters", state.encounters); put("retreatActive", state.retreatActive); put("retreatOrigin", state.retreatOrigin)
@@ -2927,7 +2989,7 @@ private fun saveState(context: Context, state: AppState) {
         put("visitedPlaces", JSONArray(state.visitedPlaces)); put("completedChapters", JSONArray(state.completedChapters)); put("manualChapterAccess", JSONArray(state.manualChapterAccess)); put("manualCompanions", JSONArray(state.manualCompanions)); put("dismissedCompanions", JSONArray(state.dismissedCompanions)); put("fairyTeleportUsed", state.fairyTeleportUsed); put("claimedChapterLoot", JSONArray(state.claimedChapterLoot))
         put("oracleJourneyActive", state.oracleJourneyActive); put("oracleCombatActive", state.oracleCombatActive)
         put("paladinJourneyArmed", state.paladinJourneyArmed); put("paladinJourneyUsed", state.paladinJourneyUsed)
-        put("companionBardJourney", state.companionBardJourney)
+        put("companionBardJourney", state.companionBardJourney); put("orienteurPursuitActive", state.orienteurPursuitActive)
         put("stepSessionId", state.stepSessionId); put("stepAppliedSteps", state.stepAppliedSteps)
         put("stepLastClosedId", state.stepLastClosedId)
         put("log", JSONArray(state.log)); put("inventory", JSONArray(state.inventory))
@@ -2943,7 +3005,7 @@ private fun saveState(context: Context, state: AppState) {
             put("roll", e.roll); put("remainingHp", e.remainingHp); put("effect", e.effect); put("safe", e.safe)
             put("contextDie", e.contextDie); put("contextBonus", e.contextBonus); put("contextWeapon", e.contextWeapon)
             put("initialQuantity", e.initialQuantity); put("illusionDie", e.illusionDie); put("hunterUsed", e.hunterUsed); put("mysticUsed", e.mysticUsed); put("mysticDescription", e.mysticDescription)
-            put("enemyHp", JSONArray(encounterHp(e))); put("typeDice", JSONArray(e.typeDice)); put("quantityDie", e.quantityDie); put("bulkerUsed", e.bulkerUsed); put("flexibilityScrollUsed", e.flexibilityScrollUsed); put("armorSecondDie", e.armorSecondDie); put("armorRerollUsed", e.armorRerollUsed); put("contextArmor", e.contextArmor); put("acidTargets", JSONArray(e.acidTargets)); put("mageCardioCasts", e.mageCardioCasts)
+            put("enemyHp", JSONArray(encounterHp(e))); put("typeDice", JSONArray(e.typeDice)); put("quantityDie", e.quantityDie); put("bulkerUsed", e.bulkerUsed); put("flexibilityScrollUsed", e.flexibilityScrollUsed); put("armorSecondDie", e.armorSecondDie); put("armorRerollUsed", e.armorRerollUsed); put("contextArmor", e.contextArmor); put("acidTargets", JSONArray(e.acidTargets)); put("mageCardioCasts", e.mageCardioCasts); put("pursuerHp", e.pursuerHp); put("pursuitBeganHere", e.pursuitBeganHere)
         }) }
     }
     context.getSharedPreferences("dof_save", Context.MODE_PRIVATE).edit()
@@ -3006,7 +3068,7 @@ private fun loadState(context: Context): AppState {
                 it.optInt("quantityDie", 0), it.optBoolean("bulkerUsed", false), it.optBoolean("flexibilityScrollUsed", false),
                 it.optInt("armorSecondDie", 0), it.optBoolean("armorRerollUsed", false), it.optString("contextArmor", ""),
                 it.optJSONArray("acidTargets")?.let { arr -> (0 until arr.length()).map { i -> arr.optInt(i) } } ?: emptyList(),
-                it.optInt("mageCardioCasts", 0))
+                it.optInt("mageCardioCasts", 0), it.optInt("pursuerHp", 0).coerceIn(0, OrienteurRules.PURSUER_HP), it.optBoolean("pursuitBeganHere", false))
         }
         val baseState = AppState()
         baseState.copy(character = if (c.profileType == "advanced" && c.className in classAchievements) c.copy(unlockedClasses = (c.unlockedClasses + c.className).distinct()) else c,
@@ -3035,7 +3097,7 @@ private fun loadState(context: Context): AppState {
             claimedChapterLoot = strings("claimedChapterLoot", emptyList()).filter { title -> storyChapters.any { it.title == title } },
             manualChapterAccess = strings("manualChapterAccess", emptyList()).filter { title -> storyChapters.any { it.title == title && it.restricted } },
             equippedWeapon = obj.optString("equippedWeapon", ""), equippedSupport = obj.optString("equippedSupport", ""), equippedArmor = obj.optString("equippedArmor", ""), mageJewelSpent = obj.optInt("mageJewelSpent", 0).coerceAtLeast(0),
-            mageResting = obj.optBoolean("mageResting", false), chevalierProtectionActive = obj.optBoolean("chevalierProtectionActive", false), meditationActive = obj.optBoolean("meditationActive", false),
+            mageResting = obj.optBoolean("mageResting", false), chevalierProtectionActive = obj.optBoolean("chevalierProtectionActive", false), orienteurPursuitActive = obj.optBoolean("orienteurPursuitActive", false), meditationActive = obj.optBoolean("meditationActive", false),
             vigorActive = obj.optBoolean("vigorActive", false), quantumMode = obj.optString("quantumMode", ""), illusionActive = obj.optBoolean("illusionActive", false),
             cardioScrollActive = obj.optBoolean("cardioScrollActive", false), forceScrollActive = obj.optBoolean("forceScrollActive", false),
             congestionScrollActive = obj.optBoolean("congestionScrollActive", false),
@@ -3100,7 +3162,7 @@ private fun warriorDamage(state: AppState, damage: Int): Int {
 }
 
 private fun enrichedAttackDamage(state: AppState, baseDamage: Int, heroicPartner: Boolean, crownPartner: Boolean): Int {
-    val count = state.lastEncounter?.let { encounterHp(it).count { hp -> hp > 0 } } ?: 0
+    val count = state.lastEncounter?.let { combatHp(it).count { hp -> hp > 0 } } ?: 0
     return HeroicRules.damage(warriorDamage(state, baseDamage),
         "Récits héroïques" in state.inventory, heroicPartner, count,
         "Réplique de couronne" in state.inventory, crownPartner)
@@ -3189,7 +3251,7 @@ private fun useMysticDie(state: AppState, kind: String, dieIndex: Int, delta: In
             val rule = encounterRules.getOrNull(roll - 7) ?: return state
             // Livre p. 42 : on ignore les rencontres dont le type n'existe pas dans la région.
             if (!isFitlandEncounter(rule)) {
-                return state.copy(lastEncounter = null, meditationActive = false, vigorActive = false,
+                return state.copy(lastEncounter = null, orienteurPursuitActive = state.orienteurPursuitActive && !e.pursuitBeganHere, meditationActive = false, vigorActive = false,
                     quantumMode = "", illusionActive = false, warriorActive = false, oracleCombatActive = false, cardioScrollActive = false, forceScrollActive = false, congestionScrollActive = false,
                     log = (listOf("$label ; somme 7D6 = $roll, ${rule.name} absent du Fitland : rencontre ignorée (livre p. 42).") + state.log).take(100))
             }
@@ -3211,7 +3273,16 @@ private fun useMysticDie(state: AppState, kind: String, dieIndex: Int, delta: In
     }
     val detail = if (kind == "Type") "$label ; somme 7D6 = ${updated.roll}, rencontre : ${updated.name} ×${updated.quantity}." else
         if (kind == "Quantité") "$label ; ${updated.quantity} adversaire(s), butin ${updated.reward} PO." else "$label ; nouveau contexte : ${updated.context}."
-    return state.copy(lastEncounter = updated.copy(mysticUsed = true, mysticDescription = detail),
+    val typeChanged = kind == "Type"
+    val keepPursuit = if (typeChanged && e.pursuitBeganHere && updated.name != "Orienteur obsédé") false else state.orienteurPursuitActive
+    val active = keepPursuit || (typeChanged && updated.name == "Orienteur obsédé")
+    val newPursuer = if (typeChanged) {
+        if (OrienteurRules.shouldJoin(active, updated.name)) OrienteurRules.PURSUER_HP else 0
+    } else updated.pursuerHp
+    return state.copy(orienteurPursuitActive = active,
+        lastEncounter = updated.copy(mysticUsed = true, mysticDescription = detail,
+            pursuerHp = newPursuer,
+            pursuitBeganHere = typeChanged && updated.name == "Orienteur obsédé" && !keepPursuit),
         log = (listOf(detail) + state.log).take(100))
 }
 

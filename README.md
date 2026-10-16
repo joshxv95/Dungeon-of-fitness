@@ -1,3 +1,7 @@
+### Dernière version : 2.8.0
+
+La poursuite de l’Orienteur obsédé et l’issue pacifique du Clan Nazcool sont automatisées (livre p. 43, 185). L’Orienteur revient avec 400 PV supplémentaires par rencontre après sa première apparition, sans PO additionnels ; le choix pacifique du Clan arrête la poursuite. Voir `CHANGELOG.md` pour les précisions sur les interactions et sauvegardes.
+
 # Dungeon of Fitness — Android
 
 Application de fitness-RPG **hors ligne**, en Kotlin / Jetpack Compose, adaptée pour un usage personnel du livre *La Communauté des Abdos*. L'application ne remplace pas les consignes de sécurité des exercices et les règles maison sont identifiées comme telles.
