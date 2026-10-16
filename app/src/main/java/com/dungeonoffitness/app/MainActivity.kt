@@ -480,6 +480,9 @@ fun DungeonApp(adventureNavigationToken: Int = 0) {
                         onChevalierEscort = { if (!state.mageResting) update(acceptChevalierEscort(state)) },
                         onAcceptShaker = { name -> if (!state.mageResting) update(acceptBulkerShaker(state, name)) },
                         onPayGuards = { if (!state.mageResting) update(payFitlandGuards(state)) },
+                        onTradeElfit = { offered -> if (!state.mageResting) update(tradeWithElfit(state, offered)) },
+                        onTradeAmazone = { offered, reward -> if (!state.mageResting) update(tradeWithAmazone(state, offered, reward)) },
+                        onSurrenderBibilithe = { offered -> if (!state.mageResting) update(surrenderToBibilithe(state, offered)) },
                         onFlee = { towardDestination -> if (!state.mageResting) update(fleeEncounter(state, towardDestination)) },
                         onHunt = { update(useHunterAbility(state)) },
                         onBulker = { update(useBulkerCompanion(state)) },
@@ -1130,6 +1133,9 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
     onChevalierEscort: () -> Unit,
     onAcceptShaker: (String) -> Unit,
     onPayGuards: () -> Unit,
+    onTradeElfit: (String) -> Unit,
+    onTradeAmazone: (String, String) -> Unit,
+    onSurrenderBibilithe: (String) -> Unit,
     onFlee: (Boolean) -> Unit,
     onHunt: () -> Unit,
     onBulker: () -> Unit,
@@ -1182,6 +1188,9 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
     var crownRealPlayerConfirmed by remember(state.encounters) { mutableStateOf(false) }
     var guardPaymentConfirm by remember(state.encounters) { mutableStateOf(false) }
     var bulkerChosenShaker by remember(state.encounters) { mutableStateOf("Shaker vigueur") }
+    var tradeOffered by remember(state.encounters) { mutableStateOf("") }
+    var fairyReward by remember(state.encounters) { mutableStateOf("Arc féérique") }
+    var specialConfirm by remember(state.encounters) { mutableStateOf("") }
     if (state.lastEncounter?.armorSecondDie in 1..6) {
         val e = state.lastEncounter!!
         val first = ArmorRules.effectiveContext(e.contextDie, e.contextBonus)
@@ -1213,6 +1222,25 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
             text = { Text("Le livre p. 43 exige la totalité des PO pour éviter le combat. Tu vas perdre ${state.character.po} PO sans recevoir de butin. Ce choix est définitif. Confirmer ?") },
             confirmButton = { TextButton(onClick = { guardPaymentConfirm = false; onPayGuards() }) { Text("Payer tous mes PO") } },
             dismissButton = { TextButton(onClick = { guardPaymentConfirm = false }) { Text("Annuler") } })
+    }
+    if (specialConfirm.isNotBlank()) {
+        val kind = specialConfirm
+        val costText = when (kind) {
+            "Elfit" -> "Échanger définitivement « $tradeOffered » contre un Bijou de mage niv.1 ? Aucun PO ne sera dépensé."
+            "Amazone" -> "Échanger définitivement « $tradeOffered » contre « $fairyReward » ? Aucun PO ne sera dépensé."
+            else -> "Céder définitivement « $tradeOffered » et TOUS tes ${state.character.po} PO au Bibilithe ? Aucun butin."
+        }
+        AlertDialog(onDismissRequest = { specialConfirm = "" },
+            title = { Text("Confirmer — $kind") }, text = { Text(costText) },
+            confirmButton = { TextButton(onClick = {
+                specialConfirm = ""
+                when (kind) {
+                    "Elfit" -> onTradeElfit(tradeOffered)
+                    "Amazone" -> onTradeAmazone(tradeOffered, fairyReward)
+                    "Bibilithe" -> onSurrenderBibilithe(tradeOffered)
+                }
+            }) { Text("Confirmer définitivement") } },
+            dismissButton = { TextButton(onClick = { specialConfirm = "" }) { Text("Annuler") } })
     }
     if (darkShakerConfirm && state.lastEncounter != null && !state.lastEncounter.safe && "Shaker sombre" in state.inventory) {
         val targets = encounterHp(state.lastEncounter)
@@ -1468,7 +1496,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
             Text("🛡️ Escorte templiométrique ACTIVE : pas de rencontres jusqu'à ${state.destination} (p. 43). Le podomètre continue jusqu'aux étapes/à l'arrivée.", color = Color(0xFFEBC582))
         }
         item { Text("Progression totale : ${"%.3f".format(state.totalTravelKm)} $unit · Rencontres déclenchées : ${state.encounters}") }
-        item { Text("Une rencontre est déclenchée tous les ${if ("Le Troll Conteur" in availableCompanions(state)) 3 else 6} ${unit} cumulés${if ("Le Troll Conteur" in availableCompanions(state)) " (Troll Conteur)" else ""}${if (state.chevalierProtectionActive) " sauf sous escorte" else ""}. Les adversaires et contextes proviennent de la table officielle (p. 42-43). Certains effets spéciaux restent manuels.", style = MaterialTheme.typography.bodySmall) }
+        item { Text("Une rencontre est déclenchée tous les ${if ("Le Troll Conteur" in availableCompanions(state)) 3 else 6} ${unit} cumulés${if ("Le Troll Conteur" in availableCompanions(state)) " (Troll Conteur)" else ""}${if (state.chevalierProtectionActive) " sauf sous escorte" else ""}. Les adversaires et contextes proviennent de la table officielle (p. 42-43). Les échanges Elfit/Amazone et la reddition au Bibilithe sont pris en charge ; la poursuite de l'Orienteur reste manuelle.", style = MaterialTheme.typography.bodySmall) }
         if (state.mageResting && (state.character.className != "Mage" || state.character.profileType != "advanced")) item {
             Button(onClick = { onMageSpell("resume", -1) }, modifier = Modifier.fillMaxWidth()) {
                 Text("⏯ Reprendre la partie mise en pause par le sort")
@@ -1509,7 +1537,7 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
             item { Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("${e.name} ×${e.quantity} (jet : ${e.roll})", style = MaterialTheme.typography.titleLarge)
                 HealthGauge("❤️ Santé totale des ennemis", encounterHp(e).sum(), e.hp * e.quantity)
-                Text("🪙 Butin potentiel : ${e.reward} PO")
+                Text(if (e.safe) "🕊️ Rencontre pacifique : aucun butin automatique" else "🪙 Butin potentiel : ${e.reward} PO")
                 if (state.chevalierProtectionActive) Text("🛡️ Escorte templiométrique active : aucune autre rencontre jusqu’à la destination.", color = Color(0xFFEBC582))
                 if (e.name == "Chevalier Templiométrique" && e.safe) {
                     Text("Chevalier templiométrique (p. 43) : accepte son escorte pour éviter les rencontres restantes jusqu’à la destination de ce voyage. Aucun PO gagné.")
@@ -1524,6 +1552,62 @@ private fun confirmRouteCheckpoint(s: AppState): AppState {
                         } }
                     }
                     Button(onClick = { onAcceptShaker(bulkerChosenShaker) }, modifier = Modifier.fillMaxWidth()) { Text("Recevoir : $bulkerChosenShaker") }
+                }
+                if (e.name == "Elfit" && e.safe) {
+                    Text("Elfit (p. 43 et 181) : échange un objet de ton inventaire contre un Bijou de mage. Aucun PO ni butin attribué.")
+                    if ("Bijou de mage" in state.inventory) {
+                        Text("Tu possèdes déjà un Bijou de mage : l'application ne gère qu'un bijou évolutif. Tu peux terminer la rencontre sans échange.")
+                    } else if (state.inventory.isEmpty()) {
+                        Text("Ton sac est vide : aucun échange possible.")
+                    } else {
+                        Text("Choisis l'objet à céder définitivement :")
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            state.inventory.distinct().forEach { offered ->
+                                OutlinedButton(onClick = { tradeOffered = offered }) { Text("${if (tradeOffered == offered) "●" else "○"} $offered") }
+                            }
+                        }
+                        Button(enabled = tradeOffered in state.inventory, onClick = { specialConfirm = "Elfit" }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Échanger contre un Bijou de mage niv.1")
+                        }
+                    }
+                }
+                if (e.name == "Amazone" && e.safe) {
+                    Text("Amazone (p. 43 et 178) : cède un objet contre une arme féérique de ton choix. Sans PO ni butin.")
+                    if (state.inventory.isEmpty()) Text("Ton sac est vide : aucun échange possible.")
+                    else {
+                        Text("Objet à céder :")
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            state.inventory.distinct().forEach { offered ->
+                                OutlinedButton(onClick = { tradeOffered = offered }) { Text("${if (tradeOffered == offered) "●" else "○"} $offered") }
+                            }
+                        }
+                        Text("Arme féérique à recevoir :")
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            SpecialEncounterRules.fairyItems.forEach { reward ->
+                                OutlinedButton(onClick = { fairyReward = reward }) { Text("${if (fairyReward == reward) "●" else "○"} $reward") }
+                            }
+                        }
+                        val canTrade = SpecialEncounterRules.exchange(state.inventory, tradeOffered, fairyReward, SpecialEncounterRules.fairyItems) != null
+                        if (fairyReward in state.inventory && tradeOffered != fairyReward) Text("Cette arme est déjà dans le sac : choisis une autre récompense.")
+                        Button(enabled = canTrade, onClick = { specialConfirm = "Amazone" }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Échanger contre $fairyReward")
+                        }
+                    }
+                }
+                if (e.name == "Bibilithe" && !e.safe && encounterHp(e).all { it == e.hp }) {
+                    Text("Bibilithe (p. 43 et 178) : cède un objet ET tous tes PO pour éviter le combat, ou affronte-le normalement (2 000 PV, 200 PO de butin par adversaire).")
+                    if (state.inventory.isEmpty()) Text("Aucun objet à céder : l'option de reddition est indisponible.")
+                    else {
+                        Text("Objet confisqué :")
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            state.inventory.distinct().forEach { offered ->
+                                OutlinedButton(onClick = { tradeOffered = offered }) { Text("${if (tradeOffered == offered) "●" else "○"} $offered") }
+                            }
+                        }
+                        OutlinedButton(enabled = tradeOffered in state.inventory, onClick = { specialConfirm = "Bibilithe" }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Céder cet objet et tous mes ${state.character.po} PO")
+                        }
+                    }
                 }
                 if (e.name == "Gardes du Fitland" && !e.safe && encounterHp(e).all { it == e.hp }) {
                     Text("Gardes du Fitland (p. 43) : perdre tous tes PO OU les affronter. Tu peux payer avant ta première attaque.")
@@ -2741,6 +2825,52 @@ private fun payFitlandGuards(s: AppState): AppState {
         log = (listOf("🛡️ Gardes du Fitland (p. 43) : ${s.character.po} PO payés pour éviter le combat. Aucun butin.") + s.log).take(100))
 }
 
+/** Elfit : un objet contre un bijou (p. 43). Le nouveau bijou est de niveau 1,
+ * avec une valeur de base fictive de 200 PO pour le calcul déjà utilisé depuis v2.5.
+ * Il n'y a aucune dépense monétaire ni revente de l'objet offert.
+ */
+private fun tradeWithElfit(s: AppState, offered: String): AppState {
+    val e = s.lastEncounter ?: return s
+    if (!e.safe || e.name != "Elfit" || "Bijou de mage" in s.inventory) return s
+    val exchanged = SpecialEncounterRules.exchange(s.inventory, offered, "Bijou de mage", setOf("Bijou de mage")) ?: return s
+    val cleared = skipEncounter(s)
+    return cleared.copy(inventory = exchanged, mageJewelSpent = 200,
+        equippedWeapon = if (s.equippedWeapon == offered) "" else s.equippedWeapon,
+        equippedSupport = if (s.equippedSupport == offered) "" else s.equippedSupport,
+        equippedArmor = if (s.equippedArmor == offered) "" else s.equippedArmor,
+        log = (listOf("✨ Elfit (p. 43) : « $offered » échangé contre un Bijou de mage niv.1 (+1 au contexte), sans dépense de PO ni butin.") + cleared.log).take(100))
+}
+
+/** Amazone : un objet contre une arme féérique de son choix (p. 43, 172, 178). */
+private fun tradeWithAmazone(s: AppState, offered: String, reward: String): AppState {
+    val e = s.lastEncounter ?: return s
+    if (!e.safe || e.name != "Amazone") return s
+    val exchanged = SpecialEncounterRules.exchange(s.inventory, offered, reward, SpecialEncounterRules.fairyItems) ?: return s
+    val cleared = skipEncounter(s)
+    return cleared.copy(inventory = exchanged,
+        mageJewelSpent = if (offered == "Bijou de mage") 0 else s.mageJewelSpent,
+        equippedWeapon = if (s.equippedWeapon == offered) "" else s.equippedWeapon,
+        equippedSupport = if (s.equippedSupport == offered) "" else s.equippedSupport,
+        equippedArmor = if (s.equippedArmor == offered) "" else s.equippedArmor,
+        log = (listOf("🏹 Amazone (p. 43) : « $offered » échangé contre « $reward » ; pas de PO ni de butin.") + cleared.log).take(100))
+}
+
+/** Bibilithe : alternative avant la première attaque, perte d'un objet + tous les PO (p. 43). */
+private fun surrenderToBibilithe(s: AppState, offered: String): AppState {
+    val e = s.lastEncounter ?: return s
+    if (e.safe || e.name != "Bibilithe" || encounterHp(e).any { it != e.hp }) return s
+    val remaining = SpecialEncounterRules.surrender(s.inventory, offered) ?: return s
+    return s.copy(character = s.character.copy(po = 0), inventory = remaining,
+        mageJewelSpent = if (offered == "Bijou de mage") 0 else s.mageJewelSpent,
+        equippedWeapon = if (s.equippedWeapon == offered) "" else s.equippedWeapon,
+        equippedSupport = if (s.equippedSupport == offered) "" else s.equippedSupport,
+        equippedArmor = if (s.equippedArmor == offered) "" else s.equippedArmor,
+        lastEncounter = null, meditationActive = false, vigorActive = false, quantumMode = "",
+        illusionActive = false, warriorActive = false, oracleCombatActive = false,
+        cardioScrollActive = false, forceScrollActive = false, congestionScrollActive = false,
+        log = (listOf("💰 Bibilithe (p. 43) : « $offered » et ${s.character.po} PO confisqués ; combat évité sans butin.") + s.log).take(100))
+}
+
 private fun useHunterAbility(s: AppState): AppState = s.lastEncounter?.let { e ->
     if (s.character.profileType != "advanced" || s.character.className != "Chasseur" || e.safe || e.hunterUsed || e.quantity <= 1 || encounterHp(e).any { it != e.hp }) return@let s
     val reduction = if (e.roll == 7) 10 else 1
@@ -2789,7 +2919,7 @@ private fun saveState(context: Context, state: AppState) {
         put("unlockedClasses", JSONArray(c.unlockedClasses)); put("completedAchievements", JSONArray(c.completedAchievements))
     }
     val obj = JSONObject().apply {
-        put("schema", 30); put("character", character); put("distance", state.distance)
+        put("schema", 31); put("character", character); put("distance", state.distance)
         put("destination", state.destination); put("destinationKm", state.destinationKm)
         put("totalTravelKm", state.totalTravelKm)
         put("encounters", state.encounters); put("retreatActive", state.retreatActive); put("retreatOrigin", state.retreatOrigin)

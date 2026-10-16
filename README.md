@@ -4,10 +4,18 @@ Application de fitness-RPG **hors ligne**, en Kotlin / Jetpack Compose, adaptée
 
 ## Version et historique
 
-- Version actuelle : **2.6.0** (`versionCode` **207**).
+- Version actuelle : **2.7.0** (`versionCode` **208**).
 - Source de vérité : `app/build.gradle.kts`, champs `versionName` et `versionCode`.
 - L'écran **Application** affiche automatiquement `BuildConfig.VERSION_NAME`, sans numéro codé en dur.
 - Historique des changements : [CHANGELOG.md](CHANGELOG.md). Carte et 28 tronçons : [CARTE-TRONCONS.md](CARTE-TRONCONS.md). Aucun fichier `VERSION-X.X.txt` n'est nécessaire.
+
+## Nouveautés 2.7.0 — échanges et confiscations (p. 43, 172, 178, 181)
+- **Elfit** : échange facultatif d'un objet possédé contre un **Bijou de mage niv.1** ; le bijou reçu ne coûte pas de PO. La base de niveau 1 est initialisée avec une valeur fictive de 200 PO uniquement pour le calcul du bonus. Un seul bijou évolutif est géré : échange désactivé si tu en possèdes déjà un.
+- **Amazone** : échange facultatif d'un objet du sac contre **Arc féérique**, **Sabre féérique** ou **Sceptre féérique**, trois armes du catalogue officiel p. 172. Pas de PO. Il n'est pas possible de recevoir un doublon d'une arme déjà possédée ; une seule copie de l'objet offert est retirée.
+- **Bibilithe** : avant le premier coup, choix entre **céder un objet ET l'intégralité des PO**, ou combattre normalement. En cas de reddition, pas de butin ; si le sac est vide, on ne peut pas céder d'objet.
+- Lorsqu'un objet cédé était équipé, le slot concerné est vidé. Si c'était le Bijou de mage, son niveau/bonus est supprimé. Confirmation irréversible avant tout échange ou paiement. Les rencontres pacifiques n'affichent plus un « butin potentiel » fictif.
+- Aucun changement au tirage des 7d6, au podomètre, aux compagnons, à la magie ni au stockage des rencontres. Schéma 31 (lecture rétrocompatible du schéma 30). Même paquet Android et même clé de signature. L'Orienteur obsédé et le Clan Nazcool ne sont **pas** encore automatisés : leurs effets restent à gérer manuellement avec le livre.
+- Tests de règles sous `tests/SpecialEncounterRulesTest.kt`. Aucun fichier `TESTS-Vx.x.md`.
 
 ## Nouveautés 2.6.0 — améliorations et rencontres spéciales (p. 43 et 171)
 - **Récits héroïques** et **Réplique de couronne** (1 000 PO chacun) : multiplicateurs conditionnels de dégâts ; le nombre d'adversaires est vérifié et la présence d'un allié ou d'un autre joueur est confirmée à chaque attaque, jamais déduite automatiquement. Le cumul de multiplicateurs est une convention d'adaptation signalée.

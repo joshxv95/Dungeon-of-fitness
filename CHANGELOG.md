@@ -1,3 +1,13 @@
+## 2.7.0 — Echanges Elfit/Amazone et chantage Bibilithe (p. 43, 172, 178, 181)
+- Elfit : choix d'un objet réellement possédé en échange d'un Bijou de mage niv.1. Pas de transaction en PO ni de butin. Convention d'interface : un bijou de mage unique et évolutif, donc échange impossible si déjà possédé ; valeur virtuelle de base 200 PO pour le calcul du bonus +1 de niveau 1.
+- Amazone : choix de l'objet cédé et de l'une des trois armes féériques du catalogue (Arc, Sabre ou Sceptre féérique). Pas de dépense de PO ; l'application n'autorise pas de doublon d'arme unique.
+- Bibilithe : avant la première attaque, sacrifier un objet et la totalité de la bourse afin d'éviter le combat ; sinon affronter normalement. Reddition impossible si aucun objet en stock. Les actions sont irréversibles et nécessitent une confirmation.
+- Une unité seulement de l'objet choisi est retirée même si plusieurs consommables identiques sont en stock. Slots d'armes/armure/soutien libérés si l'objet échangé ou confisqué était porté. Investissements du bijou réinitialisés si le bijou est cédé.
+- Les rencontres pacifiques signalent explicitement qu'il n'existe aucun butin automatique ; leur échange est facultatif.
+- Schéma 31 en sauvegarde, chargement compatible des données anciennes. `versionCode` 208, `versionName` 2.7.0. Signature et package inchangés ; podomètre, notifications, classes, capacités et seuils inchangés.
+- Tests purs de transactions (14 assertions) et vérifications des modules existants. Compilation de l'APK à confirmer via GitHub Actions.
+- Poursuite de l'Orienteur obsédé et effet du Clan Nazcool toujours manuels. Aucun fichier TESTS-Vx.x.md.
+
 ## 2.6.0 — Améliorations en groupe et rencontres à conséquences (p. 43, 171)
 - **Récits héroïques** (1 000 PO) : double les dégâts d’attaque en présence de deux combattants alliés contre un seul adversaire encore debout ; confirmation manuelle à chaque attaque.
 - **Réplique de couronne** (1 000 PO) : double les dégâts d’attaque si un autre joueur réel combat aux côtés du personnage ; confirmation manuelle par attaque. Aucun allié fictif ou compagnon automatique ne vaut confirmation d’un autre joueur.
